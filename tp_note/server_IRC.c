@@ -171,10 +171,10 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
 
         char buffer__[BUFFER_SIZE];
         bzero(buffer__, BUFFER_SIZE);
-        // printf("truoc sprintf %s: %s\n",nickName, buffer);
-        // snprintf(buffer__, "%s%s%s", nickName, ": ", buffer);
-        snprintf(buffer__, BUFFER_SIZE, "%s%s%s", nickName, ": ", buffer_offset);
-        // printf("\nsau sprintf %s\n", buffer__);
+        char buffer_time[256];
+        time_t current_time = time(NULL);
+        strftime(buffer_time, sizeof(buffer_time), "%c", localtime(&current_time));
+        snprintf(buffer__, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, nickName, ": ", buffer_offset);
         printf("%s\n", buffer__);
         for(int k = 0; k <= fdmax; k++) {
             if(FD_ISSET(k, readfds) && k != i && k != master_sockfd) {
