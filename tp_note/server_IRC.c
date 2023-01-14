@@ -28,9 +28,11 @@ void stop(char *message) {
 }
 
 void server_init(int *, struct sockaddr_in* );
-void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_list);
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax);
+void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head);
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head);
 void forward_message(int k, char* buffer, int nBytes);
+int remove_enter_in_buffer(char* buffer);
+void add_clientNode_to_list(clientNode**client_head, int client_sockfd, char* nickname_buffer, int nickname_len);
 
 int main() {
     int master_sockfd, fdmax;
@@ -61,14 +63,13 @@ int main() {
                     // The readfds, fdmax can be change after this function call
                     connection_accept(&readfds, &fdmax, master_sockfd, &client_addr, &client_head);
                     clientNode* temp = client_head;
-                    while(temp != NULL) {
-                        printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
-                        temp = temp->next;
-                    }
+                    // while(temp != NULL) {
+                    //     printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
+                    //     temp = temp->next;
+                    // }
                 }
 				else{
-                    printf("\nchatting mode\n");
-                    chatting(i, &readfds, master_sockfd, fdmax);
+                    chatting(i, &readfds, master_sockfd, fdmax, client_head);
                 }
 			}
 		}       
@@ -109,7 +110,7 @@ void server_init(int *master_sockfd, struct sockaddr_in *server_addr) {
 	fflush(stdout);
 }
 
-void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_list) {
+void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head) {
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
     int client_sockfd = accept(master_sockfd, (struct sockaddr*)client_addr, &client_addr_len);
     
@@ -118,28 +119,17 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
     }else {
         
         char nickname_buffer[BUFFER_SIZE];
-        int nickname_size;
-        
+        int n, nickname_len;
+        bzero(nickname_buffer, BUFFER_SIZE);
         // printf("\nclient index 0 avant read %s\n", client_list[0].nickname);
-        if( ( nickname_size = recv(client_sockfd, nickname_buffer, BUFFER_SIZE, 0) ) == -1) {
+        if( ( n = read(client_sockfd, nickname_buffer, BUFFER_SIZE) ) == -1) {
             stop("could not receive nickname of the client");
         }
-        nickname_buffer[nickname_size] = '\0';
+        nickname_len = remove_enter_in_buffer(nickname_buffer);
 
-        clientNode* node = (clientNode *)malloc(sizeof(clientNode));
-        node->client_sockfd = client_sockfd;
-        node->nickname = (char *)malloc(sizeof(char) * nickname_size);
-        for(int i = 0; i <= nickname_size; i++) {
-            node->nickname[i] = nickname_buffer[i];
-        }
-        if(*client_list == NULL) {
-            *client_list = node;
-            (*client_list)->next = NULL;
-        }else {
-            node->next = *client_list;
-            *client_list = node;
-        }
-        
+        // Add clientNode to client_list
+        add_clientNode_to_list(client_head, client_sockfd, nickname_buffer, nickname_len);
+
         // Put the new client into readfds we must modify the fdmax also
         FD_SET(client_sockfd, readfds);
         if(client_sockfd > *fdmax) {
@@ -152,9 +142,20 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
     
 }
 
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax) {
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head) {
+    // Find which client in client list 've sent the message
+    clientNode* temp = client_head;
+    char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
+    while(temp != NULL) {
+        if(temp->client_sockfd == i) {
+            strcpy(nickName, temp->nickname);
+            break;
+        }
+        temp = temp->next;
+    }
     char buffer[BUFFER_SIZE];
     int nBytes = read(i, buffer, BUFFER_SIZE);
+
     if (nBytes < 0) {
         stop("errors in chatting");
     }
@@ -164,10 +165,21 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax) {
         FD_CLR(i, readfds);
     }
     else if(nBytes > 0) {
+        remove_enter_in_buffer(buffer);
+        char* buffer_offset = (char*)malloc(sizeof(char) * strlen(buffer));
+        strncpy(buffer_offset, buffer, strlen(buffer));
+
+        char buffer__[BUFFER_SIZE];
+        bzero(buffer__, BUFFER_SIZE);
+        // printf("truoc sprintf %s: %s\n",nickName, buffer);
+        // snprintf(buffer__, "%s%s%s", nickName, ": ", buffer);
+        snprintf(buffer__, BUFFER_SIZE, "%s%s%s", nickName, ": ", buffer_offset);
+        // printf("\nsau sprintf %s\n", buffer__);
+        printf("%s\n", buffer__);
         for(int k = 0; k <= fdmax; k++) {
             if(FD_ISSET(k, readfds) && k != i && k != master_sockfd) {
                 // printf("message will be forwarded: %s from %d to %d\n", buffer, i, k);
-                forward_message(k, buffer, nBytes);
+                forward_message(k, buffer__, strlen(buffer__));
             }
         }
     }
@@ -176,6 +188,41 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax) {
 void forward_message(int k, char* buffer, int nBytes) {
     if(write(k, buffer, nBytes) == -1) {
         stop("could not forward message");
+    }
+}
+
+int remove_enter_in_buffer(char* buffer) {
+    /*
+    replace '\n' in buffer by '\0'
+    Params: buffer
+    Return: the len of buffer from beginning to '\0'
+    */
+    int k;
+    for(k = 0; k < BUFFER_SIZE; k++) {
+        if(buffer[k] == '\n') {
+            buffer[k] = '\0';
+            break;
+        }
+    }
+    return k;
+}
+
+void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* nickname_buffer, int nickname_len) {
+    /*
+    Add clientNode which has nickname_buffer, client_sockfd at the beginning of client_list
+    */
+    clientNode* node = (clientNode *)malloc(sizeof(clientNode));
+    node->client_sockfd = client_sockfd;
+    node->nickname = (char *)malloc(sizeof(char) * nickname_len);
+    for(int i = 0; i <= nickname_len; i++) {
+        node->nickname[i] = nickname_buffer[i];
+    }
+    if(*client_head == NULL) {
+        *client_head = node;
+        (*client_head)->next = NULL;
+    }else {
+        node->next = *client_head;
+        *client_head = node;
     }
 }
 

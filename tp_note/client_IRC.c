@@ -78,7 +78,6 @@ void connect_to_server(int *sockfd, struct sockaddr_in* server_addr) {
 
 void chatting(int i, int sockfd)
 {
-    printf("\ninside chatting in client side\n");
 	char send_buf[BUFFER_SIZE];
 	char recv_buf[BUFFER_SIZE];
 	int nbyte_recvd;
@@ -88,7 +87,7 @@ void chatting(int i, int sockfd)
 		if (strcmp(send_buf , "quit\n") == 0) {
 			exit(0);
 		}else{
-			send(sockfd, send_buf, strlen(send_buf), 0);
+			write(sockfd, send_buf, strlen(send_buf));
         }
 	}else {
 		nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0);
