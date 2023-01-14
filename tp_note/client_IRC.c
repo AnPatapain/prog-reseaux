@@ -13,46 +13,14 @@
 #define BUFFER_SIZE 1024
 
 #define CLIENT_READY 0
-#define NTP_TIMESTAMP_DELTA 2208988800ull
-
-#define LI(packet)   (uint8_t) ((packet.li_vn_mode & 0xC0) >> 6) // (li   & 11 000 000) >> 6
-#define VN(packet)   (uint8_t) ((packet.li_vn_mode & 0x38) >> 3) // (vn   & 00 111 000) >> 3
-#define MODE(packet) (uint8_t) ((packet.li_vn_mode & 0x07) >> 0) // (mode & 00 000 111) >> 0
-typedef struct
-{
-
-    uint8_t li_vn_mode;      // Eight bits. li, vn, and mode.
-                             // li.   Two bits.   Leap indicator.
-                             // vn.   Three bits. Version number of the protocol.
-                             // mode. Three bits. Client will pick mode 3 for client.
-
-    uint8_t stratum;         // Eight bits. Stratum level of the local clock.
-    uint8_t poll;            // Eight bits. Maximum interval between successive messages.
-    uint8_t precision;       // Eight bits. Precision of the local clock.
-
-    uint32_t rootDelay;      // 32 bits. Total round trip delay time.
-    uint32_t rootDispersion; // 32 bits. Max error aloud from primary clock source.
-    uint32_t refId;          // 32 bits. Reference clock identifier.
-
-    uint32_t refTm_s;        // 32 bits. Reference time-stamp seconds.
-    uint32_t refTm_f;        // 32 bits. Reference time-stamp fraction of a second.
-
-    uint32_t origTm_s;       // 32 bits. Originate time-stamp seconds.
-    uint32_t origTm_f;       // 32 bits. Originate time-stamp fraction of a second.
-
-    uint32_t rxTm_s;         // 32 bits. Received time-stamp seconds.
-    uint32_t rxTm_f;         // 32 bits. Received time-stamp fraction of a second.
-
-    uint32_t txTm_s;         // 32 bits and the most important field the client cares about. Transmit time-stamp seconds.
-    uint32_t txTm_f;         // 32 bits. Transmit time-stamp fraction of a second.
-
-}ntp_packet;              // Total: 384 bits or 48 bytes.
 
 void stop(char*);
 
 void connect_to_server(int *sockfd, struct sockaddr_in* server_addr);
 
 void chatting(int i, int sockfd);
+
+void send_nickname_to_server(int sockfd);
 
 int main() {
     // Create the client socket
@@ -102,23 +70,27 @@ void connect_to_server(int *sockfd, struct sockaddr_in* server_addr) {
         stop("could not connect with server");
     }else {
         //If connect successfully then try to send a unique nickname to the server
-        char server_msg[BUFFER_SIZE];
-        do {
-            char nickname_buf[BUFFER_SIZE];
-            printf("write your nickname: ");
-            fgets(nickname_buf, BUFFER_SIZE, stdin);
-            // Send the nickname of client to server
-            if(send(*sockfd, nickname_buf, BUFFER_SIZE, 0) == -1) {
-                stop("error when sending the nickname of client to the server");
-            }
-            
-            bzero(server_msg, BUFFER_SIZE);
-            if(recv(*sockfd, server_msg, BUFFER_SIZE, 0) == -1) {
-                stop("could not receive confirm message from the server");
-            }
-            printf("server reply: %s\n", server_msg);
-        }while(strcmp(server_msg, "bienvenue") != 0); 
+        send_nickname_to_server(*sockfd);
     }
+}
+
+void send_nickname_to_server(int sockfd) {
+    char server_msg[BUFFER_SIZE];
+    do {
+        char nickname_buf[BUFFER_SIZE];
+        printf("write your nickname: ");
+        fgets(nickname_buf, BUFFER_SIZE, stdin);
+        // Send the nickname of client to server
+        if(send(sockfd, nickname_buf, BUFFER_SIZE, 0) == -1) {
+            stop("error when sending the nickname of client to the server");
+        }
+
+        bzero(server_msg, BUFFER_SIZE);
+        if(recv(sockfd, server_msg, BUFFER_SIZE, 0) == -1) {
+            stop("could not receive confirm message from the server");
+        }
+        printf("server reply: %s\n", server_msg);
+    }while(strcmp(server_msg, "bienvenue") != 0);
 }
 
 void chatting(int i, int sockfd)

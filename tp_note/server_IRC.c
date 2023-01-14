@@ -32,6 +32,7 @@ void server_init(int *, struct sockaddr_in* );
 void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head);
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head);
 void forward_message(int k, char* buffer, int nBytes);
+void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
 
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
@@ -128,26 +129,8 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
         int n, nickname_len;
         bzero(nickname_buffer, BUFFER_SIZE);
 
-        // Read the nickname that client've sent untill it's valide
-        do {
-            if ( ( n = read(client_sockfd, nickname_buffer, BUFFER_SIZE) ) == -1){
-                stop("could not receive nickname of the client");
-            }
-            nickname_len = remove_enter_in_buffer(nickname_buffer);
-            
-            if(check_nickname_valid(*client_head, nickname_buffer) == 0) {
-                char warn[] = "invalid nickname";
-                //send the warnning message to client
-                if(send(client_sockfd, warn, strlen(warn), 0) == -1) {
-                    stop("could not send warning message to the client");
-                }
-            }else {
-                char greeting_msg[] = "bienvenue";
-                if(send(client_sockfd, greeting_msg, strlen(greeting_msg), 0) == -1) {
-                    stop("could not send greeting message to the client");
-                }
-            }
-        }while(check_nickname_valid(*client_head, nickname_buffer) == 0);
+        // Request nickname of client
+        request_nickname(*client_head, client_sockfd, nickname_buffer, &nickname_len);
 
         // Add clientNode to client_list
         add_clientNode_to_list(client_head, client_sockfd, nickname_buffer, nickname_len);
@@ -262,5 +245,28 @@ int check_nickname_valid(clientNode* client_head, char*nickname_buffer) {
         temp = temp->next;
     }
     return 1;
+}
+
+void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len) {
+    int n;
+    do {
+        if ( ( n = read(client_sockfd, nickname_buffer, BUFFER_SIZE) ) == -1){
+            stop("could not receive nickname of the client");
+        }
+        *nickname_len = remove_enter_in_buffer(nickname_buffer);
+            
+        if(check_nickname_valid(client_head, nickname_buffer) == 0) {
+        char warn[] = "invalid nickname";
+                //send the warnning message to client
+        if(send(client_sockfd, warn, strlen(warn), 0) == -1) {
+            stop("could not send warning message to the client");
+        }
+        }else {
+            char greeting_msg[] = "bienvenue";
+            if(send(client_sockfd, greeting_msg, strlen(greeting_msg), 0) == -1) {
+                stop("could not send greeting message to the client");
+            }
+        }
+    }while(check_nickname_valid(client_head, nickname_buffer) == 0);
 }
 
