@@ -97,16 +97,27 @@ void connect_to_server(int *sockfd, struct sockaddr_in* server_addr) {
     server_addr->sin_port = htons(PORT);
     server_addr->sin_family = AF_INET;
     server_addr->sin_addr.s_addr = inet_addr("127.0.0.1");
+    
     if (connect(*sockfd, (const struct sockaddr*)server_addr, sizeof(struct sockaddr)) < 0) {
         stop("could not connect with server");
     }else {
-        char nickname_buf[BUFFER_SIZE];
-        printf("write your nickname: ");
-        fgets(nickname_buf, BUFFER_SIZE, stdin);
-        // Send the nickname of client to server
-        if(send(*sockfd, nickname_buf, BUFFER_SIZE, 0) == -1) {
-            stop("error when sending the nickname of client to the server");
-        } 
+        //If connect successfully then try to send a unique nickname to the server
+        char server_msg[BUFFER_SIZE];
+        do {
+            char nickname_buf[BUFFER_SIZE];
+            printf("write your nickname: ");
+            fgets(nickname_buf, BUFFER_SIZE, stdin);
+            // Send the nickname of client to server
+            if(send(*sockfd, nickname_buf, BUFFER_SIZE, 0) == -1) {
+                stop("error when sending the nickname of client to the server");
+            }
+            
+            bzero(server_msg, BUFFER_SIZE);
+            if(recv(*sockfd, server_msg, BUFFER_SIZE, 0) == -1) {
+                stop("could not receive confirm message from the server");
+            }
+            printf("server reply: %s\n", server_msg);
+        }while(strcmp(server_msg, "bienvenue") != 0); 
     }
 }
 
@@ -125,7 +136,6 @@ void chatting(int i, int sockfd)
         }
 	}else {
 		nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0);
-        printf("\n%d\n", nbyte_recvd);
 		recv_buf[nbyte_recvd] = '\0';
 		printf("%s\n" , recv_buf);
 		fflush(stdout);
