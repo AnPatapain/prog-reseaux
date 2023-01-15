@@ -36,14 +36,17 @@ void request_nickname(clientNode *client_head, int client_sockfd, char* nickname
 void message_formatted(char* buffer, char* nickName, char* buffer_formatted);
 char **split_command(char *commande);
 void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds);
+
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
+void clean_worlds_array(char **args);
 
 // Function for client_list handling
 void add_clientNode_to_list(clientNode**client_head, int client_sockfd, char* nickname_buffer, int nickname_len);
 int check_nickname_valid(clientNode* client_head, char*nickname_buffer);
 clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd);
-void change_nickname();
+clientNode* find_client_by_nickname(clientNode* client_head, char* nickname);
+void change_nickname(clientNode* client, int client_sockfd, char* new_nickname);
 
 int main() {
     int master_sockfd, fdmax;
@@ -58,6 +61,7 @@ int main() {
     FD_SET(master_sockfd, &readfds);
 
     fdmax = master_sockfd;
+
     while(TRUE) {
         // We change the readfds au cours de body of while and at the beginning we assign readfds to actual_readfds
         actual_readfds = readfds;
@@ -91,6 +95,9 @@ int main() {
 }
 
 void server_init(int *master_sockfd, struct sockaddr_in *server_addr) {
+    /*
+    Initialize the server by binding the server_addr to master_sockfd and start listenning for the new connection
+    */
     int opt = TRUE;
 
     // Create server address structure
@@ -122,6 +129,10 @@ void server_init(int *master_sockfd, struct sockaddr_in *server_addr) {
 }
 
 void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head) {
+    /*
+    Accept connection. The server must request client for the nickname and then add the new client to client_list
+    and add client_sockfd to readfds
+    */
     socklen_t client_addr_len = sizeof(struct sockaddr_in);
     int client_sockfd = accept(master_sockfd, (struct sockaddr*)client_addr, &client_addr_len);
     
@@ -152,8 +163,14 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
 }
 
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head) {
+    /*
+    Chatting between server and client. There are two big case.
+    Case1: the message from client start with / => server must handle the command
+    Case2: the message from client is normal message => server must forward it to all clients in readfds except for
+    the one that just has sent the message
+    */
     
-    // Find which client in client list 've sent the message
+    // Find which client in client list that have sent the message
     char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
     bzero(nickName, BUFFER_SIZE);
     clientNode* client = find_client_by_sockfd(client_head, i);
@@ -175,17 +192,9 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
     else if(nBytes > 0) {
         if(buffer[0] == '/') {
             char **args = split_command(buffer);
-            
-            // Clean the enter in every world of command
-            int i = 0;
-            char *temp_buf = args[i];
-            while(temp_buf != NULL) {
-                remove_enter_in_buffer(temp_buf);
-                i++;
-                temp_buf = args[i];
-            }
-            // FINI clean the enter in every world of command TODO: make code 182-188 modular
 
+            clean_worlds_array(args);
+            // FINI clean the enter in every world of command TODO: make code 182-188 modular
             command_handler(args, i, nickName, client_head, readfds);
         }else {
             char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
@@ -203,6 +212,7 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
 
     }
 }
+
 char **split_command(char *line)
 {
     /*
@@ -237,19 +247,82 @@ char **split_command(char *line)
 }
 
 void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds) {
-    // if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
-    //     //TODO change_nickname_function
-    //     printf("\nTODO: change_nickname_function\n");
-    //     clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
-    //     char* new_nickname = args[1];
-    //     change_nickname();
-    // }
+    /*
+    Handle diverse command by calling the corresponding function based upon the command args
+    */
+    if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
+        char* new_nickname = args[1];
+        change_nickname(client_head, client_sockfd, new_nickname);
+    }
+    if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
+        // Finding which client the current client want to send private message
+        clientNode* client_node = find_client_by_nickname(client_head, args[1]);
+        // printf("\nclient info: %s, %d\n", client_node->nickname, client_node->client_sockfd);
+        char *private_msg = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        bzero(private_msg, BUFFER_SIZE);
+        // char *temp = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        // bzero(temp, BUFFER_SIZE);
+        sprintf(private_msg, "%s%s", args[2], " ");
+        int i_ = 3;
+        while(args[i_] != NULL){
+            printf("\nargs[i_]: %s\n", args[i_]);
+            if(i_ == 3) {
+                sprintf(private_msg, "%s%s", private_msg, args[i_]);
+            }else {
+                sprintf(private_msg, "%s%s%s", private_msg, " ", args[i_]);
+            }
+            i_++;
+        }
+        
+        // Send message
+        printf("\nprivate message: %s\n", private_msg);
+
+    }
+}
+
+void change_nickname(clientNode* client_head, int client_sockfd, char* new_nickname) {
+    /*
+    allow client which has client_sockfd in client_list change current nickname to new_nickname
+    */
+    if(check_nickname_valid(client_head, new_nickname) == 0) {
+        //the new nickname is already existed ! send a error message to the client
+        char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+        bzero(error_message, BUFFER_SIZE);
+        strcpy(error_message, "sorry this nickname is already used by another user!");
+        
+        if(write(client_sockfd, error_message, BUFFER_SIZE) == -1) {
+            stop("could not send the nickname changing error message to client");
+        }
+    }else {
+        clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
+        if(client == NULL) {
+            stop("client finding error in change_nickname");
+        }
+        char* current_nickname = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        strcpy(current_nickname, client->nickname);
+        printf("\n%s has changed nickname to %s\n", current_nickname, new_nickname);
+        strcpy(client->nickname, new_nickname);
+    }
 }
 
 clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd) {
+    /*
+    Find and return a client_node that has a sockfd that is passed in argument
+    */
     clientNode* temp = client_head;
     while(temp!=NULL) {
         if(temp->client_sockfd == sockfd) {
+            return temp;
+        }
+        temp = temp->next;
+    }
+    return NULL;
+}
+
+clientNode* find_client_by_nickname(clientNode* client_head, char* nickname) {
+    clientNode* temp = client_head;
+    while(temp != NULL) {
+        if(strcmp(temp->nickname, nickname) == 0) {
             return temp;
         }
         temp = temp->next;
@@ -295,6 +368,20 @@ int remove_enter_in_buffer(char* buffer) {
     return k;
 }
 
+void clean_worlds_array(char **args) {
+    /*
+    call remove_enter_in_buffer on every worlds in args
+    */
+    int i_ = 0;
+    char *temp_buf = args[i_];
+
+    while(temp_buf != NULL) {
+        remove_enter_in_buffer(temp_buf);
+        i_++;
+        temp_buf = args[i_];
+    }
+}
+
 void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* nickname_buffer, int nickname_len) {
     /*
     Add clientNode which has nickname_buffer, client_sockfd at the beginning of client_list
@@ -330,6 +417,9 @@ int check_nickname_valid(clientNode* client_head, char*nickname_buffer) {
 }
 
 void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len) {
+    /*
+    Request the client the nickname untill it's valid and then store it in nickname_buffer
+    */
     int n;
     do {
         if ( ( n = read(client_sockfd, nickname_buffer, BUFFER_SIZE) ) == -1){
