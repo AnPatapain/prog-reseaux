@@ -33,13 +33,17 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head);
 void forward_message(int k, char* buffer, int nBytes);
 void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
-
+void message_formatted(char* buffer, char* nickName, char* buffer_formatted);
+char **split_command(char *commande);
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds);
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
 
 // Function for client_list handling
 void add_clientNode_to_list(clientNode**client_head, int client_sockfd, char* nickname_buffer, int nickname_len);
 int check_nickname_valid(clientNode* client_head, char*nickname_buffer);
+clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd);
+void change_nickname();
 
 int main() {
     int master_sockfd, fdmax;
@@ -148,17 +152,16 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
 }
 
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head) {
+    
     // Find which client in client list 've sent the message
-    clientNode* temp = client_head;
     char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
-    while(temp != NULL) {
-        if(temp->client_sockfd == i) {
-            strcpy(nickName, temp->nickname);
-            break;
-        }
-        temp = temp->next;
-    }
+    bzero(nickName, BUFFER_SIZE);
+    clientNode* client = find_client_by_sockfd(client_head, i);
+    strcpy(nickName, client->nickname);
+
     char buffer[BUFFER_SIZE];
+
+    // Read the message from the client
     int nBytes = read(i, buffer, BUFFER_SIZE);
 
     if (nBytes < 0) {
@@ -170,25 +173,104 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
         FD_CLR(i, readfds);
     }
     else if(nBytes > 0) {
-        remove_enter_in_buffer(buffer);
-        char* buffer_offset = (char*)malloc(sizeof(char) * strlen(buffer));
-        strncpy(buffer_offset, buffer, strlen(buffer));
-        buffer_offset[strlen(buffer)] = '\0';
+        if(buffer[0] == '/') {
+            char **args = split_command(buffer);
+            
+            // Clean the enter in every world of command
+            int i = 0;
+            char *temp_buf = args[i];
+            while(temp_buf != NULL) {
+                remove_enter_in_buffer(temp_buf);
+                i++;
+                temp_buf = args[i];
+            }
+            // FINI clean the enter in every world of command TODO: make code 182-188 modular
 
-        char buffer__[BUFFER_SIZE];
-        bzero(buffer__, BUFFER_SIZE);
-        char buffer_time[256];
-        time_t current_time = time(NULL);
-        strftime(buffer_time, sizeof(buffer_time), "%c", localtime(&current_time));
-        snprintf(buffer__, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, nickName, ": ", buffer_offset);
-        printf("%s\n",buffer__);
-        for(int k = 0; k <= fdmax; k++) {
-            if(FD_ISSET(k, readfds) && k != i && k != master_sockfd) {
-                // printf("message will be forwarded: %s from %d to %d\n", buffer, i, k);
-                forward_message(k, buffer__, strlen(buffer__));
+            command_handler(args, i, nickName, client_head, readfds);
+        }else {
+            char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+            bzero(buffer__, BUFFER_SIZE);
+            message_formatted(buffer, nickName, buffer__);
+            printf("%s\n",buffer__);
+
+            for(int k = 0; k <= fdmax; k++) {
+                if(FD_ISSET(k, readfds) && k != i && k != master_sockfd) {
+                    // printf("message will be forwarded: %s from %d to %d\n", buffer, i, k);
+                    forward_message(k, buffer__, strlen(buffer__));
+                }
             }
         }
+
     }
+}
+char **split_command(char *line)
+{
+    /*
+    Split line into multiple worlds with delimiter is space. Then return a array where
+    the world is stored
+    */
+    char **tokens = (char**)calloc(sizeof(char*), BUFFER_SIZE);
+    for(int i = 0; i < BUFFER_SIZE; i++) {
+        tokens[i] = (char*)calloc(sizeof(char), BUFFER_SIZE);
+    }
+    int i = 0; // for traversing line
+    int j = 0; // for traversing tokens
+    int k = 0; // for traversing tokens[j]
+
+    while(line[i] != '\0') {
+        if(line[i] == ' ') {
+            tokens[j][k] = '\0';
+            j++;
+            k = 0;
+        }else {
+            tokens[j][k++] = line[i];
+        }
+        i++;
+    }
+    tokens[j][k] = '\0';
+
+    for(int i = j+1; i < BUFFER_SIZE; i++) {
+        tokens[i] = NULL;
+    }
+    
+    return tokens;
+}
+
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds) {
+    // if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
+    //     //TODO change_nickname_function
+    //     printf("\nTODO: change_nickname_function\n");
+    //     clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
+    //     char* new_nickname = args[1];
+    //     change_nickname();
+    // }
+}
+
+clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd) {
+    clientNode* temp = client_head;
+    while(temp!=NULL) {
+        if(temp->client_sockfd == sockfd) {
+            return temp;
+        }
+        temp = temp->next;
+    }
+    return NULL;
+}
+
+void message_formatted(char* buffer, char* nickName, char* buffer_formatted) {
+    /*
+    add current_time and nickname at the beginning of buffer and store in buffer_formatted
+    */
+    remove_enter_in_buffer(buffer);
+    char* buffer_offset = (char*)malloc(sizeof(char) * strlen(buffer));
+    strncpy(buffer_offset, buffer, strlen(buffer));
+    buffer_offset[strlen(buffer)] = '\0';
+
+    char buffer_time[256];
+    time_t current_time = time(NULL);
+    strftime(buffer_time, sizeof(buffer_time), "%c", localtime(&current_time));
+    
+    snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, nickName, ": ", buffer_offset);
 }
 
 void forward_message(int k, char* buffer, int nBytes) {
