@@ -33,9 +33,10 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head);
 void forward_message(int k, char* buffer, int nBytes);
 void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
-void message_formatted(char* buffer, char* nickName, char* buffer_formatted);
+void message_formatted(char* buffer, char* prefix, char* buffer_formatted);
 char **split_command(char *commande);
 void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds);
+void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args);
 
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
@@ -191,11 +192,19 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
     }
     else if(nBytes > 0) {
         if(buffer[0] == '/') {
+            // printf("\nbuffer in chatting: %s\n", buffer); ->>> BUG HEREEEEEEEEEEEEEE
+            remove_enter_in_buffer(buffer);
             char **args = split_command(buffer);
-
             clean_worlds_array(args);
-            // FINI clean the enter in every world of command TODO: make code 182-188 modular
+            //Test whether the args is clean or not
+            // int o_ = 2;
+            // while(args[o_] != NULL) {
+            //     printf("\nlen: %d args[%d]: %s\n", strlen(args[o_]), o_, args[o_]);
+            //     o_++;
+            // }
+            // The args is not clean before moving into command_handler
             command_handler(args, i, nickName, client_head, readfds);
+
         }else {
             char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
             bzero(buffer__, BUFFER_SIZE);
@@ -255,17 +264,29 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
         change_nickname(client_head, client_sockfd, new_nickname);
     }
     if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
-        // Finding which client the current client want to send private message
-        clientNode* client_node = find_client_by_nickname(client_head, args[1]);
-        // printf("\nclient info: %s, %d\n", client_node->nickname, client_node->client_sockfd);
+        send_private_message(client_head, nickName, client_sockfd, args);
+    }
+    
+}
+
+void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args){
+    clientNode* client_node = find_client_by_nickname(client_head, args[1]);
+
+    if(client_node == NULL) {
+        char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+        bzero(error_message, BUFFER_SIZE);
+        strcpy(error_message, "sorry we could not find the client you want to send the message to!");
+        
+        if(write(sockfd_src, error_message, BUFFER_SIZE) == -1) {
+            stop("could not send the private messaging error message to client");
+        }
+    }
+    else {
         char *private_msg = (char*)malloc(sizeof(char) * BUFFER_SIZE);
         bzero(private_msg, BUFFER_SIZE);
-        // char *temp = (char*)malloc(sizeof(char) * BUFFER_SIZE);
-        // bzero(temp, BUFFER_SIZE);
         sprintf(private_msg, "%s%s", args[2], " ");
         int i_ = 3;
         while(args[i_] != NULL){
-            printf("\nargs[i_]: %s\n", args[i_]);
             if(i_ == 3) {
                 sprintf(private_msg, "%s%s", private_msg, args[i_]);
             }else {
@@ -273,11 +294,21 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
             }
             i_++;
         }
-        
-        // Send message
-        printf("\nprivate message: %s\n", private_msg);
+        char* prefix = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        bzero(prefix, BUFFER_SIZE);
+        sprintf(prefix, "%s%s", "private msg from: ", nickName_src);
 
+        char* private_buffer = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        bzero(private_buffer, BUFFER_SIZE);
+
+        message_formatted(private_msg, prefix, private_buffer);
+
+        // Send message
+        if(send(client_node->client_sockfd, private_buffer, strlen(private_buffer), 0) == -1) {
+            stop("error when sending private message");
+        }
     }
+
 }
 
 void change_nickname(clientNode* client_head, int client_sockfd, char* new_nickname) {
@@ -330,7 +361,7 @@ clientNode* find_client_by_nickname(clientNode* client_head, char* nickname) {
     return NULL;
 }
 
-void message_formatted(char* buffer, char* nickName, char* buffer_formatted) {
+void message_formatted(char* buffer, char* prefix, char* buffer_formatted) {
     /*
     add current_time and nickname at the beginning of buffer and store in buffer_formatted
     */
@@ -343,7 +374,7 @@ void message_formatted(char* buffer, char* nickName, char* buffer_formatted) {
     time_t current_time = time(NULL);
     strftime(buffer_time, sizeof(buffer_time), "%c", localtime(&current_time));
     
-    snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, nickName, ": ", buffer_offset);
+    snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, prefix, ": ", buffer_offset);
 }
 
 void forward_message(int k, char* buffer, int nBytes) {
