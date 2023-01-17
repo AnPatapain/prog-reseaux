@@ -334,7 +334,7 @@ void send_private_message(clientNode* client_head, char* nickName_src, int sockf
         }
         char* prefix = (char*)malloc(sizeof(char) * BUFFER_SIZE);
         bzero(prefix, BUFFER_SIZE);
-        sprintf(prefix, "%s%s", "private msg from: ", nickName_src);
+        sprintf(prefix, "%s%s", "private msg from ", nickName_src);
 
         char* private_buffer = (char*)malloc(sizeof(char) * BUFFER_SIZE);
         bzero(private_buffer, BUFFER_SIZE);
