@@ -30,13 +30,14 @@ void stop(char *message) {
 //Function for server-client connection and communication in chatroom handling
 void server_init(int *, struct sockaddr_in* );
 void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head);
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head);
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head);
 void forward_message(int k, char* buffer, int nBytes);
 void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
 void message_formatted(char* buffer, char* prefix, char* buffer_formatted);
 char **split_command(char *commande);
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds);
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, fd_set *readfds);
 void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args);
+void client_exit_handling(clientNode** client_head, int client_sockfd, fd_set* readfds);
 
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
@@ -48,6 +49,8 @@ int check_nickname_valid(clientNode* client_head, char*nickname_buffer);
 clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd);
 clientNode* find_client_by_nickname(clientNode* client_head, char* nickname);
 void change_nickname(clientNode* client, int client_sockfd, char* new_nickname);
+void remove_node_by_sockfd(clientNode** client_head, int sockfd);
+void print_client_list(clientNode*client_head); // FOR TESTING PURPOSE
 
 int main() {
     int master_sockfd, fdmax;
@@ -72,20 +75,20 @@ int main() {
             stop("error occurs when selecting the ready socket");
         }
 
+        // clientNode* temp = client_head;
+        // while(temp != NULL) {
+        //     printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
+        //     temp = temp->next;
+        // }
         for (int i = 0; i <= fdmax; i++){
 			if (FD_ISSET(i, &actual_readfds)){
 				if (i == master_sockfd){
                     // If the master_sockfd is ready it means there is a client want to connect
                     // The readfds, fdmax can be change after this function call
                     connection_accept(&readfds, &fdmax, master_sockfd, &client_addr, &client_head);
-                    clientNode* temp = client_head;
-                    // while(temp != NULL) {
-                    //     printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
-                    //     temp = temp->next;
-                    // }
                 }
 				else{
-                    chatting(i, &readfds, master_sockfd, fdmax, client_head);
+                    chatting(i, &readfds, master_sockfd, fdmax, &client_head);
                 }
 			}
 		}       
@@ -163,7 +166,7 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
     
 }
 
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* client_head) {
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head) {
     /*
     Chatting between server and client. There are two big case.
     Case1: the message from client start with / => server must handle the command
@@ -174,7 +177,7 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
     // Find which client in client list that have sent the message
     char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
     bzero(nickName, BUFFER_SIZE);
-    clientNode* client = find_client_by_sockfd(client_head, i);
+    clientNode* client = find_client_by_sockfd(*client_head, i);
     strcpy(nickName, client->nickname);
 
     char buffer[BUFFER_SIZE];
@@ -197,11 +200,6 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode* 
             char **args = split_command(buffer);
             clean_worlds_array(args);
             //Test whether the args is clean or not
-            // int o_ = 2;
-            // while(args[o_] != NULL) {
-            //     printf("\nlen: %d args[%d]: %s\n", strlen(args[o_]), o_, args[o_]);
-            //     o_++;
-            // }
             // The args is not clean before moving into command_handler
             command_handler(args, i, nickName, client_head, readfds);
 
@@ -255,18 +253,58 @@ char **split_command(char *line)
     return tokens;
 }
 
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode* client_head, fd_set *readfds) {
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, fd_set *readfds) {
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
+    // print_client_list(*client_head);
     if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
         char* new_nickname = args[1];
-        change_nickname(client_head, client_sockfd, new_nickname);
+        change_nickname(*client_head, client_sockfd, new_nickname);
     }
     if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
-        send_private_message(client_head, nickName, client_sockfd, args);
+        send_private_message(*client_head, nickName, client_sockfd, args);
     }
-    
+    if(strcmp(args[0], "/exit") == 0) {
+        client_exit_handling(client_head, client_sockfd, readfds);
+    }
+
+}
+
+void client_exit_handling(clientNode** client_head, int client_sockfd, fd_set* reafds) {
+    // remove client from list chainee
+    remove_node_by_sockfd(client_head, client_sockfd);
+    // clear sockfd of it from readfds
+    close(client_sockfd);
+    FD_CLR(client_sockfd, reafds);
+}
+
+void remove_node_by_sockfd(clientNode** client_head, int client_sockfd) {
+    // Store head node
+    clientNode* temp = *client_head;
+    clientNode* prev;
+
+    // If head node itself holds the key to be deleted
+    if (temp != NULL && temp->client_sockfd == client_sockfd) {
+        *client_head = temp->next;   // Changed head
+        free(temp);               // free old head
+        return;
+    }
+
+    // Search for the client_sockfd to be deleted, keep track of the
+    // previous node as we need to change 'prev->next'
+    while (temp != NULL && temp->client_sockfd != client_sockfd) {
+        prev = temp;
+        temp = temp->next;
+    }
+
+    // If client_sockfd was not present in linked list
+    if (temp == NULL) return;
+
+    // Unlink the node from linked list
+    prev->next = temp->next;
+
+    free(temp);  // Free memory
 }
 
 void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args){
@@ -325,6 +363,7 @@ void change_nickname(clientNode* client_head, int client_sockfd, char* new_nickn
             stop("could not send the nickname changing error message to client");
         }
     }else {
+        printf("\ncoucou\n");
         clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
         if(client == NULL) {
             stop("client finding error in change_nickname");
@@ -438,6 +477,7 @@ int check_nickname_valid(clientNode* client_head, char*nickname_buffer) {
     client list). If it is return 1 and 0 if it isn't
     */
     clientNode* temp = client_head;
+    // print_client_list(client_head);
     while(temp != NULL) {
         if(strcmp(nickname_buffer, temp->nickname) == 0) {
             return 0;
@@ -473,3 +513,11 @@ void request_nickname(clientNode *client_head, int client_sockfd, char* nickname
     }while(check_nickname_valid(client_head, nickname_buffer) == 0);
 }
 
+void print_client_list(clientNode* client_head) {
+    printf("\ncoucou\n");
+    clientNode* temp = client_head;
+    while(temp != NULL) {
+        printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
+        temp = temp->next;
+    }
+}

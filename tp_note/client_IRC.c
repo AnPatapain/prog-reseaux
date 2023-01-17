@@ -101,10 +101,13 @@ void chatting(int i, int sockfd)
 	
 	if (i == 0){
 		fgets(send_buf, BUFFER_SIZE, stdin);
-		if (strcmp(send_buf , "/exit\n") == 0) {
+		if (strcmp(send_buf , "/quit\n") == 0) {
 			exit(0);
 		}else{
 			write(sockfd, send_buf, strlen(send_buf));
+            if(strcmp(send_buf, "/exit\n") == 0) {
+                exit(0);
+            }
         }
 	}else {
 		nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0);
