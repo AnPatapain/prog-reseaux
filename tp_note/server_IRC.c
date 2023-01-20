@@ -44,7 +44,7 @@ void message_formatted(char* buffer, char* prefix, char* buffer_formatted);
 char **split_command(char *commande);
 void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds);
 void send_private_message(clientNode* client_head, regis_clientNode* regis_client_head, char* nickName_src, int sockfd_src, char** args);
-void client_exit_handling(clientNode** client_head, int client_sockfd, fd_set* readfds);
+void client_exit_handling(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, fd_set* readfds);
 
 // Function for buffer handling
 int remove_enter_in_buffer(char* buffer);
@@ -63,6 +63,7 @@ void print_client_list(clientNode*client_head); // FOR TESTING PURPOSE
 void add_regis_clientNode_to_list(regis_clientNode** client_head, int client_sockfd, char* nickname, char* password, int nickname_len, int password_len);
 regis_clientNode* find_regis_client_by_sockfd(regis_clientNode* regis_client_head, int sockfd);
 regis_clientNode* find_regis_client_by_nickname(regis_clientNode* regis_client_head, char* nickname);
+void remove_regis_node_by_sockfd(regis_clientNode** regis_client_head, int sockfd);
 
 int main() {
     int master_sockfd, fdmax;
@@ -299,7 +300,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
         send_private_message(*client_head, *regis_client_head, nickName, client_sockfd, args);
     }
     else if(strcmp(args[0], "/exit") == 0) {
-        client_exit_handling(client_head, client_sockfd, readfds);
+        client_exit_handling(client_head, regis_client_head, client_sockfd, readfds);
     }
     else if(strcmp(args[0], "/register") == 0 && args[1] != NULL && args[2] != NULL) {
         
@@ -345,9 +346,21 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
 
 }
 
-void client_exit_handling(clientNode** client_head, int client_sockfd, fd_set* reafds) {
+void client_exit_handling(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, fd_set* reafds) {
+    // Check the client is in normal list or regis_client_list
+    clientNode* client = find_client_by_sockfd(*client_head, client_sockfd);
+    regis_clientNode* regis_client = find_regis_client_by_sockfd(*regis_client_head, client_sockfd);
+    if(client == NULL && regis_client == NULL) {
+        stop("finding client error in exit_handling in server side");
+    }
+
     // remove client from list chainee
-    remove_node_by_sockfd(client_head, client_sockfd);
+    if(client != NULL) {
+        remove_node_by_sockfd(client_head, client_sockfd);
+    }else {
+        remove_regis_node_by_sockfd(regis_client_head, client_sockfd);
+    }
+    
     // clear sockfd of it from readfds
     close(client_sockfd);
     FD_CLR(client_sockfd, reafds);
@@ -361,6 +374,33 @@ void remove_node_by_sockfd(clientNode** client_head, int client_sockfd) {
     // If head node itself holds the key to be deleted
     if (temp != NULL && temp->client_sockfd == client_sockfd) {
         *client_head = temp->next;   // Changed head
+        free(temp);               // free old head
+        return;
+    }
+
+    // Search for the client_sockfd to be deleted, keep track of the
+    // previous node as we need to change 'prev->next'
+    while (temp != NULL && temp->client_sockfd != client_sockfd) {
+        prev = temp;
+        temp = temp->next;
+    }
+
+    // If client_sockfd was not present in linked list
+    if (temp == NULL) return;
+
+    // Unlink the node from linked list
+    prev->next = temp->next;
+
+    free(temp);  // Free memory
+}
+
+void remove_regis_node_by_sockfd(regis_clientNode** regis_client_head, int client_sockfd) {
+    regis_clientNode* temp = *regis_client_head;
+    regis_clientNode* prev;
+
+    // If head node itself holds the key to be deleted
+    if (temp != NULL && temp->client_sockfd == client_sockfd) {
+        *regis_client_head = temp->next;   // Changed head
         free(temp);               // free old head
         return;
     }
