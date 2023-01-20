@@ -22,6 +22,13 @@ typedef struct clientNode {
     struct clientNode* next;
 }clientNode;
 
+typedef struct regis_clientNode {
+    int client_sockfd;
+    char *nickname;
+    char* password;
+    struct regis_clientNode* next;
+}regis_clientNode;
+
 void stop(char *message) {
     perror(message);
     _Exit(1);
@@ -29,14 +36,14 @@ void stop(char *message) {
 
 //Function for server-client connection and communication in chatroom handling
 void server_init(int *, struct sockaddr_in* );
-void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head);
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head);
+void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head, regis_clientNode** regis_client_head);
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head, regis_clientNode** regis_client_head);
 void forward_message(int k, char* buffer, int nBytes);
-void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
+void request_nickname(clientNode *client_head, regis_clientNode* regis_client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
 void message_formatted(char* buffer, char* prefix, char* buffer_formatted);
 char **split_command(char *commande);
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, fd_set *readfds);
-void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args);
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds);
+void send_private_message(clientNode* client_head, regis_clientNode* regis_client_head, char* nickName_src, int sockfd_src, char** args);
 void client_exit_handling(clientNode** client_head, int client_sockfd, fd_set* readfds);
 
 // Function for buffer handling
@@ -45,17 +52,23 @@ void clean_worlds_array(char **args);
 
 // Function for client_list handling
 void add_clientNode_to_list(clientNode**client_head, int client_sockfd, char* nickname_buffer, int nickname_len);
-int check_nickname_valid(clientNode* client_head, char*nickname_buffer);
+int check_nickname_valid(clientNode* client_head, regis_clientNode* regis_client_head, char*nickname_buffer);
 clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd);
 clientNode* find_client_by_nickname(clientNode* client_head, char* nickname);
-void change_nickname(clientNode* client, int client_sockfd, char* new_nickname);
+void change_nickname(clientNode* client, regis_clientNode* regis_client_head, int client_sockfd, char* new_nickname);
 void remove_node_by_sockfd(clientNode** client_head, int sockfd);
 void print_client_list(clientNode*client_head); // FOR TESTING PURPOSE
+
+// Function for regis_client_list handling
+void add_regis_clientNode_to_list(regis_clientNode** client_head, int client_sockfd, char* nickname, char* password, int nickname_len, int password_len);
+regis_clientNode* find_regis_client_by_sockfd(regis_clientNode* regis_client_head, int sockfd);
+regis_clientNode* find_regis_client_by_nickname(regis_clientNode* regis_client_head, char* nickname);
 
 int main() {
     int master_sockfd, fdmax;
     struct sockaddr_in server_addr, client_addr;
     clientNode *client_head = NULL;
+    regis_clientNode *regis_client_head = NULL;
 
     fd_set readfds, actual_readfds;
     FD_ZERO(&readfds);
@@ -75,20 +88,26 @@ int main() {
             stop("error occurs when selecting the ready socket");
         }
 
-        // clientNode* temp = client_head;
+        // printf("\nnormal client list\n");
+        // print_client_list(client_head);
+
+
+        // printf("\nregis client list\n");
+        // regis_clientNode* temp = regis_client_head;
         // while(temp != NULL) {
-        //     printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
+        //     printf("\n%d %s %s\n", temp->client_sockfd, temp->nickname, temp->password);
         //     temp = temp->next;
         // }
+
         for (int i = 0; i <= fdmax; i++){
 			if (FD_ISSET(i, &actual_readfds)){
 				if (i == master_sockfd){
                     // If the master_sockfd is ready it means there is a client want to connect
                     // The readfds, fdmax can be change after this function call
-                    connection_accept(&readfds, &fdmax, master_sockfd, &client_addr, &client_head);
+                    connection_accept(&readfds, &fdmax, master_sockfd, &client_addr, &client_head, &regis_client_head);
                 }
 				else{
-                    chatting(i, &readfds, master_sockfd, fdmax, &client_head);
+                    chatting(i, &readfds, master_sockfd, fdmax, &client_head, &regis_client_head);
                 }
 			}
 		}       
@@ -132,7 +151,7 @@ void server_init(int *master_sockfd, struct sockaddr_in *server_addr) {
 	fflush(stdout);
 }
 
-void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head) {
+void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head, regis_clientNode** regis_client_head) {
     /*
     Accept connection. The server must request client for the nickname and then add the new client to client_list
     and add client_sockfd to readfds
@@ -149,7 +168,7 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
         bzero(nickname_buffer, BUFFER_SIZE);
 
         // Request nickname of client
-        request_nickname(*client_head, client_sockfd, nickname_buffer, &nickname_len);
+        request_nickname(*client_head, *regis_client_head, client_sockfd, nickname_buffer, &nickname_len);
 
         // Add clientNode to client_list
         add_clientNode_to_list(client_head, client_sockfd, nickname_buffer, nickname_len);
@@ -166,7 +185,7 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
     
 }
 
-void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head) {
+void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head, regis_clientNode** regis_client_head) {
     /*
     Chatting between server and client. There are two big case.
     Case1: the message from client start with / => server must handle the command
@@ -178,9 +197,21 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
     char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
     bzero(nickName, BUFFER_SIZE);
     clientNode* client = find_client_by_sockfd(*client_head, i);
-    strcpy(nickName, client->nickname);
+    regis_clientNode* regis_client;
+    if(client == NULL) {
+        regis_client = find_regis_client_by_sockfd(*regis_client_head, i);
+        if(regis_client == NULL) {
+            stop("error when finding who send message in two list");
+        }
+    }
+    if(client != NULL) {
+        strcpy(nickName, client->nickname);
+    }else if(regis_client != NULL) {
+        strcpy(nickName, regis_client->nickname);
+    }
 
     char buffer[BUFFER_SIZE];
+    bzero(buffer, BUFFER_SIZE);
 
     // Read the message from the client
     int nBytes = read(i, buffer, BUFFER_SIZE);
@@ -194,17 +225,19 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
         FD_CLR(i, readfds);
     }
     else if(nBytes > 0) {
+        remove_enter_in_buffer(buffer);
         if(buffer[0] == '/') {
             // printf("\nbuffer in chatting: %s\n", buffer); ->>> BUG HEREEEEEEEEEEEEEE
-            remove_enter_in_buffer(buffer);
             char **args = split_command(buffer);
             clean_worlds_array(args);
             //Test whether the args is clean or not
             // The args is not clean before moving into command_handler
-            command_handler(args, i, nickName, client_head, readfds);
+            command_handler(args, i, nickName, client_head, regis_client_head, readfds);
 
         }else {
             char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+            char* test1 = (char*)malloc(sizeof(char) * strlen(buffer));
+            char* test2 = (char*)malloc(sizeof(char) * BUFFER_SIZE);
             bzero(buffer__, BUFFER_SIZE);
             message_formatted(buffer, nickName, buffer__);
             printf("%s\n",buffer__);
@@ -253,20 +286,61 @@ char **split_command(char *line)
     return tokens;
 }
 
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, fd_set *readfds) {
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds) {
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
     // print_client_list(*client_head);
     if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
         char* new_nickname = args[1];
-        change_nickname(*client_head, client_sockfd, new_nickname);
+        change_nickname(*client_head, *regis_client_head, client_sockfd, new_nickname);
     }
-    if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
-        send_private_message(*client_head, nickName, client_sockfd, args);
+    else if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
+        send_private_message(*client_head, *regis_client_head, nickName, client_sockfd, args);
     }
-    if(strcmp(args[0], "/exit") == 0) {
+    else if(strcmp(args[0], "/exit") == 0) {
         client_exit_handling(client_head, client_sockfd, readfds);
+    }
+    else if(strcmp(args[0], "/register") == 0 && args[1] != NULL && args[2] != NULL) {
+        
+        int create_successfully = 0;
+        if(find_regis_client_by_sockfd(*regis_client_head, client_sockfd) != NULL) {
+            char warn_[] = "sorry you has already registered";
+            if(send(client_sockfd, warn_, strlen(warn_), 0) == -1) {
+                stop("error when sending warn_ in command handler");
+            }
+        }else {
+            if(strcmp(args[1], nickName) == 0) {
+            
+                //TODO: add node to regis_client_list
+                //Metadata for regis_node: client_sockfd, nickname, password, nickname_len, password_len
+                add_regis_clientNode_to_list(regis_client_head, client_sockfd, nickName, args[2], strlen(nickName), strlen(args[2]));
+                create_successfully = 1;
+            
+            }else {
+                //TODO: Check if there is a non registered client are actually using this args[1] as nickname
+                // If it is then refuse to create new regis client and exit current activity
+                // If it is not then create new regis client and set create_successfully to 1
+                clientNode* temp_client = find_client_by_nickname(*client_head, args[1]);
+                regis_clientNode* temp_regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]);
+                char warn_buffer[] = "sorry this nickname is existed";
+                if(temp_client != NULL || temp_regis_client != NULL) {
+                    if(send(client_sockfd, warn_buffer, strlen(warn_buffer), 0) == -1) {
+                        stop("error when send warn buffer in register case in command handler");
+                    }
+                }else {
+                    add_regis_clientNode_to_list(regis_client_head, client_sockfd, args[1], args[2], strlen(args[1]), strlen(args[2]));
+                    create_successfully = 1;
+                }
+
+            }
+
+            if (create_successfully) {
+                //TODO: remove the user in normal client_list
+                remove_node_by_sockfd(client_head, client_sockfd);
+            }
+        }
+        
     }
 
 }
@@ -307,10 +381,11 @@ void remove_node_by_sockfd(clientNode** client_head, int client_sockfd) {
     free(temp);  // Free memory
 }
 
-void send_private_message(clientNode* client_head, char* nickName_src, int sockfd_src, char** args){
+void send_private_message(clientNode* client_head, regis_clientNode* regis_client_head, char* nickName_src, int sockfd_src, char** args){
     clientNode* client_node = find_client_by_nickname(client_head, args[1]);
+    regis_clientNode* regis_client_node = find_regis_client_by_nickname(regis_client_head, args[1]);
 
-    if(client_node == NULL) {
+    if(client_node == NULL && regis_client_node == NULL) {
         char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
         bzero(error_message, BUFFER_SIZE);
         strcpy(error_message, "sorry we could not find the client you want to send the message to!");
@@ -341,19 +416,25 @@ void send_private_message(clientNode* client_head, char* nickName_src, int sockf
 
         message_formatted(private_msg, prefix, private_buffer);
 
+        int target_sockfd;
+        if(client_node != NULL) {
+            target_sockfd = client_node->client_sockfd;
+        }else {
+            target_sockfd = regis_client_node->client_sockfd;
+        }
         // Send message
-        if(send(client_node->client_sockfd, private_buffer, strlen(private_buffer), 0) == -1) {
+        if(send(target_sockfd, private_buffer, strlen(private_buffer), 0) == -1) {
             stop("error when sending private message");
         }
     }
 
 }
 
-void change_nickname(clientNode* client_head, int client_sockfd, char* new_nickname) {
+void change_nickname(clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, char* new_nickname) {
     /*
     allow client which has client_sockfd in client_list change current nickname to new_nickname
     */
-    if(check_nickname_valid(client_head, new_nickname) == 0) {
+    if(check_nickname_valid(client_head, regis_client_head, new_nickname) == 0) {
         //the new nickname is already existed ! send a error message to the client
         char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
         bzero(error_message, BUFFER_SIZE);
@@ -363,15 +444,26 @@ void change_nickname(clientNode* client_head, int client_sockfd, char* new_nickn
             stop("could not send the nickname changing error message to client");
         }
     }else {
-        printf("\ncoucou\n");
         clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
+        regis_clientNode* regis_client;
+        
         if(client == NULL) {
-            stop("client finding error in change_nickname");
+            regis_client = find_regis_client_by_sockfd(regis_client_head, client_sockfd);
+            if(regis_client == NULL){
+                stop("find client fail in change_nickname");
+            }    
         }
-        char* current_nickname = (char*)malloc(sizeof(char) * BUFFER_SIZE);
-        strcpy(current_nickname, client->nickname);
+        char* current_nickname = (char*)calloc(BUFFER_SIZE, sizeof(char));
+        
+        if(client != NULL) {
+            strcpy(current_nickname, client->nickname);
+            strcpy(client->nickname, new_nickname);
+        }
+        else if(regis_client != NULL) {
+            strcpy(current_nickname, regis_client->nickname);
+            strcpy(regis_client->nickname, new_nickname);
+        }
         printf("\n%s has changed nickname to %s\n", current_nickname, new_nickname);
-        strcpy(client->nickname, new_nickname);
     }
 }
 
@@ -380,6 +472,17 @@ clientNode* find_client_by_sockfd(clientNode* client_head, int sockfd) {
     Find and return a client_node that has a sockfd that is passed in argument
     */
     clientNode* temp = client_head;
+    while(temp!=NULL) {
+        if(temp->client_sockfd == sockfd) {
+            return temp;
+        }
+        temp = temp->next;
+    }
+    return NULL;
+}
+
+regis_clientNode* find_regis_client_by_sockfd(regis_clientNode* regis_client_head, int sockfd) {
+    regis_clientNode* temp = regis_client_head;
     while(temp!=NULL) {
         if(temp->client_sockfd == sockfd) {
             return temp;
@@ -400,20 +503,34 @@ clientNode* find_client_by_nickname(clientNode* client_head, char* nickname) {
     return NULL;
 }
 
+regis_clientNode* find_regis_client_by_nickname(regis_clientNode* regis_client_head, char* nickname) {
+    regis_clientNode* temp = regis_client_head;
+    while(temp != NULL) {
+        if(strcmp(temp->nickname, nickname) == 0) {
+            return temp;
+        }
+        temp = temp->next;
+    }
+    return NULL;
+}
+
 void message_formatted(char* buffer, char* prefix, char* buffer_formatted) {
     /*
     add current_time and nickname at the beginning of buffer and store in buffer_formatted
     */
-    remove_enter_in_buffer(buffer);
-    char* buffer_offset = (char*)malloc(sizeof(char) * strlen(buffer));
+    char* buffer_offset = (char*)calloc(strlen(buffer), sizeof(char));
     strncpy(buffer_offset, buffer, strlen(buffer));
     buffer_offset[strlen(buffer)] = '\0';
-
-    char buffer_time[256];
-    time_t current_time = time(NULL);
-    strftime(buffer_time, sizeof(buffer_time), "%c", localtime(&current_time));
     
-    snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, prefix, ": ", buffer_offset);
+    // char buffer_time[50];
+    // time_t current_time = time(NULL);
+    // printf("\ninner flag 4\n");
+    // printf("\n%d\n", current_time);
+    // strftime(buffer_time, sizeof(buffer_time), "%Y-%m-%d %H:%M:%S", localtime(&current_time));
+    // printf("\ninner flag 5\n");
+
+    // snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, prefix, ": ", buffer_offset);
+    snprintf(buffer_formatted, BUFFER_SIZE, "%s%s%s", prefix, ": ", buffer_offset);
 }
 
 void forward_message(int k, char* buffer, int nBytes) {
@@ -455,6 +572,7 @@ void clean_worlds_array(char **args) {
 void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* nickname_buffer, int nickname_len) {
     /*
     Add clientNode which has nickname_buffer, client_sockfd at the beginning of client_list
+    If the client_list was not created then create it
     */
     clientNode* node = (clientNode *)malloc(sizeof(clientNode));
     node->client_sockfd = client_sockfd;
@@ -471,23 +589,42 @@ void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* n
     }
 }
 
-int check_nickname_valid(clientNode* client_head, char*nickname_buffer) {
+void add_regis_clientNode_to_list(regis_clientNode** regis_client_head, int client_sockfd, char* nickname, char* password, int nickname_len, int password_len) {
+    regis_clientNode* node = (regis_clientNode *)malloc(sizeof(regis_clientNode));
+    node->client_sockfd = client_sockfd;
+    node->nickname = (char *)calloc(nickname_len, sizeof(char));
+    for(int i = 0; i <= nickname_len; i++) {
+        node->nickname[i] = nickname[i];
+    }
+    node->password = (char *)calloc(password_len, sizeof(char));
+    for(int i = 0; i <= password_len; i++) {
+        node->password[i] = password[i];
+    }
+    if(*regis_client_head == NULL) {
+        *regis_client_head = node;
+        (*regis_client_head)->next = NULL;
+    }else {
+        node->next = *regis_client_head;
+        *regis_client_head = node;
+    }
+}
+
+int check_nickname_valid(clientNode* client_head, regis_clientNode* regis_client_head, char*nickname_buffer) {
     /*
     Check whether the nickname_buffer valid or not (the nickname is considered valid if it doesn't existed in 
-    client list). If it is return 1 and 0 if it isn't
+    client list and regis_client list). If it is return 1 and 0 if it isn't
     */
-    clientNode* temp = client_head;
-    // print_client_list(client_head);
-    while(temp != NULL) {
-        if(strcmp(nickname_buffer, temp->nickname) == 0) {
-            return 0;
-        }
-        temp = temp->next;
+    
+    clientNode* client = find_client_by_nickname(client_head, nickname_buffer);
+    regis_clientNode* regis_client = find_regis_client_by_nickname(regis_client_head, nickname_buffer);
+    
+    if(client != NULL || regis_client != NULL) {
+        return 0;
     }
     return 1;
 }
 
-void request_nickname(clientNode *client_head, int client_sockfd, char* nickname_buffer, int* nickname_len) {
+void request_nickname(clientNode *client_head, regis_clientNode* regis_client_head, int client_sockfd, char* nickname_buffer, int* nickname_len) {
     /*
     Request the client the nickname untill it's valid and then store it in nickname_buffer
     */
@@ -498,7 +635,7 @@ void request_nickname(clientNode *client_head, int client_sockfd, char* nickname
         }
         *nickname_len = remove_enter_in_buffer(nickname_buffer);
             
-        if(check_nickname_valid(client_head, nickname_buffer) == 0) {
+        if(check_nickname_valid(client_head, regis_client_head, nickname_buffer) == 0) {
         char warn[] = "invalid nickname";
                 //send the warnning message to client
         if(send(client_sockfd, warn, strlen(warn), 0) == -1) {
@@ -510,11 +647,10 @@ void request_nickname(clientNode *client_head, int client_sockfd, char* nickname
                 stop("could not send greeting message to the client");
             }
         }
-    }while(check_nickname_valid(client_head, nickname_buffer) == 0);
+    }while(check_nickname_valid(client_head, regis_client_head, nickname_buffer) == 0);
 }
 
 void print_client_list(clientNode* client_head) {
-    printf("\ncoucou\n");
     clientNode* temp = client_head;
     while(temp != NULL) {
         printf("\n%d %s\n", temp->client_sockfd, temp->nickname);
