@@ -636,7 +636,7 @@ void add_regis_clientNode_to_list(regis_clientNode** regis_client_head, int clie
     for(int i = 0; i <= nickname_len; i++) {
         node->nickname[i] = nickname[i];
     }
-    node->password = (char *)calloc(password_len, sizeof(char));
+    node->password = (char *)calloc(1024, sizeof(char));
     for(int i = 0; i <= password_len; i++) {
         node->password[i] = password[i];
     }
