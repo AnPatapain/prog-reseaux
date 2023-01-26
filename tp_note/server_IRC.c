@@ -16,6 +16,12 @@
 #define False 0
 #define MAX_CLIENT 3
 
+#define RED "\033[41m"
+#define YELLOW "\033[43m"
+#define GREEN "\033[42m"
+#define BLUE "\033[44m"
+#define GREY "\033[47m"
+
 typedef struct clientNode {
     int client_sockfd;
     char *nickname;
@@ -38,15 +44,18 @@ void stop(char *message) {
 void server_init(int *, struct sockaddr_in* );
 void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct sockaddr_in* client_addr, clientNode** client_head, regis_clientNode** regis_client_head);
 void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode** client_head, regis_clientNode** regis_client_head);
-void forward_message(int k, char* buffer, int nBytes);
+void forward_message(fd_set* readfds, int fdmax, int master_sockfd, int client_sockfd, char* buffer, int nBytes);
 void request_nickname(clientNode *client_head, regis_clientNode* regis_client_head, int client_sockfd, char* nickname_buffer, int* nickname_len);
 void message_formatted(char* buffer, char* prefix, char* buffer_formatted);
-char **split_command(char *commande);
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds);
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds, int fdmax, int master_sockfd);
 void send_private_message(clientNode* client_head, regis_clientNode* regis_client_head, char* nickName_src, int sockfd_src, char** args);
 void client_exit_handling(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, fd_set* readfds);
+void change_color_buffer(char* buffer, char* color_code, char* buffer__);
+void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd);
 
 // Function for buffer handling
+char **split_command(char *commande);
+void assembler_args_into_buffer(char** args, char* buffer);
 int remove_enter_in_buffer(char* buffer);
 void clean_worlds_array(char **args);
 
@@ -66,6 +75,8 @@ regis_clientNode* find_regis_client_by_nickname(regis_clientNode* regis_client_h
 void remove_regis_node_by_sockfd(regis_clientNode** regis_client_head, int sockfd);
 void register_client(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, char* currentNickName, char* newNickName, char* password);
 void change_nickname_forcely(clientNode *client_head, regis_clientNode *regis_client_head, int client_sockfd, char* password, char* new_nickname);
+void unregister_client_handling(clientNode** client_head, regis_clientNode** regis_client_head, regis_clientNode* regis_client);
+void send_server_date_to_client(int client_sockfd);
 
 int main() {
     int master_sockfd, fdmax;
@@ -235,24 +246,28 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
             clean_worlds_array(args);
             //Test whether the args is clean or not
             // The args is not clean before moving into command_handler
-            command_handler(args, i, nickName, client_head, regis_client_head, readfds);
+            command_handler(args, i, nickName, client_head, regis_client_head, readfds, fdmax, master_sockfd);
 
         }else {
             char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
-            char* test1 = (char*)malloc(sizeof(char) * strlen(buffer));
-            char* test2 = (char*)malloc(sizeof(char) * BUFFER_SIZE);
             bzero(buffer__, BUFFER_SIZE);
             message_formatted(buffer, nickName, buffer__);
             printf("%s\n",buffer__);
 
-            for(int k = 0; k <= fdmax; k++) {
-                if(FD_ISSET(k, readfds) && k != i && k != master_sockfd) {
-                    // printf("message will be forwarded: %s from %d to %d\n", buffer, i, k);
-                    forward_message(k, buffer__, strlen(buffer__));
-                }
-            }
+            forward_message(readfds, fdmax, master_sockfd, i, buffer__, strlen(buffer__));
         }
 
+    }
+}
+
+void forward_message(fd_set* readfds, int fdmax, int master_sockfd, int client_sockfd, char* buffer, int nBytes) {
+    for(int k = 0; k <= fdmax; k++) {
+        if(FD_ISSET(k, readfds) && k != client_sockfd && k != master_sockfd) {
+            // printf("message will be forwarded: %s from %d to %d\n", buffer, i, k);
+            if(write(k, buffer, nBytes) == -1) {
+                stop("could not forward message");
+            }
+        }
     }
 }
 
@@ -289,7 +304,7 @@ char **split_command(char *line)
     return tokens;
 }
 
-void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds) {
+void command_handler(char** args, int client_sockfd, char* nickName, clientNode** client_head, regis_clientNode** regis_client_head, fd_set *readfds, int fdmax, int master_sockfd) {
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
@@ -313,16 +328,119 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
             }
         }
     }
+    
     else if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
         send_private_message(*client_head, *regis_client_head, nickName, client_sockfd, args);
     }
+    
     else if(strcmp(args[0], "/exit") == 0) {
         client_exit_handling(client_head, regis_client_head, client_sockfd, readfds);
     }
+    
     else if(strcmp(args[0], "/register") == 0 && args[1] != NULL && args[2] != NULL) {
         register_client(client_head, regis_client_head, client_sockfd, nickName, args[1], args[2]);
     }
+    
+    else if(strcmp(args[0], "/unregister") == 0 && args[1] != NULL && args[2] != NULL) {
+        // Precondition: the client must be registered client and the password must be correct to do this method
+        regis_clientNode* regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]); 
+        if(regis_client != NULL && strcmp(regis_client->password, args[2]) == 0) {
+            unregister_client_handling(client_head, regis_client_head, regis_client);    
+        } else {
+            char role_err[] = "\033[41mThe password is wrong OR you are not registered client\033[m";
+            if(send(client_sockfd, role_err, strlen(role_err), 0) == -1) {
+                stop("send role_err error in command_handler");
+            }
+        }
+    } 
+    
+    else if(strcmp(args[0], "/date") == 0) {
+        send_server_date_to_client(client_sockfd);
+    }
+    
+    else if(strcmp(args[0], "/alerte") == 0) {
+        char *buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
+        assembler_args_into_buffer(args, buffer);
+        alerte_broadcast(buffer, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
 
+        
+    }
+}
+
+void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
+    char* buffer__ = (char *)calloc(sizeof(char), 1024);
+    char* prefix__ = (char *)calloc(sizeof(char), 1024);
+
+    char* prefix = (char *)calloc(sizeof(char), 1024);
+    clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
+    regis_clientNode* regis_client;
+    if(client == NULL) {
+        regis_client = find_regis_client_by_sockfd(regis_client_head, client_sockfd);
+        snprintf(prefix, BUFFER_SIZE, "%s%s", "alerte from ", regis_client->nickname);
+        if(regis_client == NULL) {
+            stop("find client error in command handler (alerte)");
+        }
+    }else {
+        snprintf(prefix, BUFFER_SIZE, "%s%s", "alerte from ", client->nickname);
+    }
+
+    change_color_buffer(prefix, RED, prefix__);
+    message_formatted(buffer, prefix__, buffer__);
+    forward_message(readfds, fdmax, master_sockfd, client_sockfd, buffer__, strlen(buffer__));
+}
+
+void change_color_buffer(char* buffer, char* color_code, char* buffer__) {
+    /*
+    change color message by concatenating color_ascii code and buffer and store the result in buffer__
+    */
+    char* buffer_offset = (char*)calloc(strlen(buffer), sizeof(char));
+    strncpy(buffer_offset, buffer, strlen(buffer));
+    buffer_offset[strlen(buffer)] = '\0';
+    
+    //example: \033[41mThe password is wrong OR you are not registered client\033[m
+    snprintf(buffer__, BUFFER_SIZE, "%s%s%s", color_code, buffer_offset, "\033[m");
+}
+
+void assembler_args_into_buffer(char** args, char* buffer) {
+    int k = 1;
+    int j = 0;
+    int i = 0;
+    while(args[k] != NULL) {
+        for(int i = 0; i < strlen(args[k]); i++) {
+            buffer[j] = args[k][i];
+            j++;
+        } 
+        buffer[j] = ' ';   
+        k++;
+        j++;
+    }
+}
+
+void send_server_date_to_client(int client_sockfd) {
+
+}
+
+
+void unregister_client_handling(clientNode** client_head, regis_clientNode** regis_client_head, regis_clientNode* regis_client) {
+    /*
+    remove client in regis_client_list and add client into normal client list
+    */
+    int regis_client_sockfd = regis_client->client_sockfd;
+    char nickname_buffer[BUFFER_SIZE];
+    bzero(nickname_buffer, BUFFER_SIZE);
+
+    for(int i = 0; i < BUFFER_SIZE; i++) {
+        nickname_buffer[i] = regis_client->nickname[i];
+    }
+
+    add_clientNode_to_list(client_head, regis_client->client_sockfd, nickname_buffer, strlen(nickname_buffer));
+    remove_regis_node_by_sockfd(regis_client_head, regis_client->client_sockfd);
+
+    // Send msg inform to client
+    char unregister_msg[] = "Change role successfully. You are normal client now";
+    if(send(regis_client_sockfd, unregister_msg, strlen(unregister_msg), 0) == -1) {
+        stop("send unregister_msg error in unregister_client_handling");
+    }
 }
 
 void client_exit_handling(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, fd_set* reafds) {
@@ -550,12 +668,6 @@ void message_formatted(char* buffer, char* prefix, char* buffer_formatted) {
 
     // snprintf(buffer_formatted, BUFFER_SIZE, "[%s] %s%s%s",buffer_time, prefix, ": ", buffer_offset);
     snprintf(buffer_formatted, BUFFER_SIZE, "%s%s%s", prefix, ": ", buffer_offset);
-}
-
-void forward_message(int k, char* buffer, int nBytes) {
-    if(write(k, buffer, nBytes) == -1) {
-        stop("could not forward message");
-    }
 }
 
 int remove_enter_in_buffer(char* buffer) {
