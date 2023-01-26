@@ -64,6 +64,8 @@ void add_regis_clientNode_to_list(regis_clientNode** client_head, int client_soc
 regis_clientNode* find_regis_client_by_sockfd(regis_clientNode* regis_client_head, int sockfd);
 regis_clientNode* find_regis_client_by_nickname(regis_clientNode* regis_client_head, char* nickname);
 void remove_regis_node_by_sockfd(regis_clientNode** regis_client_head, int sockfd);
+void register_client(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, char* currentNickName, char* newNickName, char* password);
+void change_nickname_forcely(clientNode *client_head, regis_clientNode *regis_client_head, int client_sockfd, char* password, char* new_nickname);
 
 int main() {
     int master_sockfd, fdmax;
@@ -89,16 +91,16 @@ int main() {
             stop("error occurs when selecting the ready socket");
         }
 
-        // printf("\nnormal client list\n");
-        // print_client_list(client_head);
+        printf("\nnormal client list\n");
+        print_client_list(client_head);
 
 
-        // printf("\nregis client list\n");
-        // regis_clientNode* temp = regis_client_head;
-        // while(temp != NULL) {
-        //     printf("\n%d %s %s\n", temp->client_sockfd, temp->nickname, temp->password);
-        //     temp = temp->next;
-        // }
+        printf("\nregis client list\n");
+        regis_clientNode* temp = regis_client_head;
+        while(temp != NULL) {
+            printf("\n%d %s %s\n", temp->client_sockfd, temp->nickname, temp->password);
+            temp = temp->next;
+        }
 
         for (int i = 0; i <= fdmax; i++){
 			if (FD_ISSET(i, &actual_readfds)){
@@ -291,10 +293,25 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
-    // print_client_list(*client_head);
+    
     if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
         char* new_nickname = args[1];
-        change_nickname(*client_head, *regis_client_head, client_sockfd, new_nickname);
+
+        if(args[2] == NULL) {
+            // In case normal client want to change nickname
+            change_nickname(*client_head, *regis_client_head, client_sockfd, new_nickname);
+        }
+        else {
+            // Precondition: the client must be registered client to do this method
+            if(find_regis_client_by_sockfd(*regis_client_head, client_sockfd) != NULL) {
+                change_nickname_forcely(*client_head, *regis_client_head, client_sockfd, args[2], new_nickname);
+            } else {
+                char role_err[] = "sorry you must be registered client to change forcely nickname";
+                if(send(client_sockfd, role_err, strlen(role_err), 0) == -1) {
+                    stop("send role_err error in command_handler");
+                }
+            }
+        }
     }
     else if(strcmp(args[0], "/mp") == 0 && args[1] != NULL && args[2] != NULL) {
         send_private_message(*client_head, *regis_client_head, nickName, client_sockfd, args);
@@ -303,45 +320,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
         client_exit_handling(client_head, regis_client_head, client_sockfd, readfds);
     }
     else if(strcmp(args[0], "/register") == 0 && args[1] != NULL && args[2] != NULL) {
-        
-        int create_successfully = 0;
-        if(find_regis_client_by_sockfd(*regis_client_head, client_sockfd) != NULL) {
-            char warn_[] = "sorry you has already registered";
-            if(send(client_sockfd, warn_, strlen(warn_), 0) == -1) {
-                stop("error when sending warn_ in command handler");
-            }
-        }else {
-            if(strcmp(args[1], nickName) == 0) {
-            
-                //TODO: add node to regis_client_list
-                //Metadata for regis_node: client_sockfd, nickname, password, nickname_len, password_len
-                add_regis_clientNode_to_list(regis_client_head, client_sockfd, nickName, args[2], strlen(nickName), strlen(args[2]));
-                create_successfully = 1;
-            
-            }else {
-                //TODO: Check if there is a non registered client are actually using this args[1] as nickname
-                // If it is then refuse to create new regis client and exit current activity
-                // If it is not then create new regis client and set create_successfully to 1
-                clientNode* temp_client = find_client_by_nickname(*client_head, args[1]);
-                regis_clientNode* temp_regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]);
-                char warn_buffer[] = "sorry this nickname is existed";
-                if(temp_client != NULL || temp_regis_client != NULL) {
-                    if(send(client_sockfd, warn_buffer, strlen(warn_buffer), 0) == -1) {
-                        stop("error when send warn buffer in register case in command handler");
-                    }
-                }else {
-                    add_regis_clientNode_to_list(regis_client_head, client_sockfd, args[1], args[2], strlen(args[1]), strlen(args[2]));
-                    create_successfully = 1;
-                }
-
-            }
-
-            if (create_successfully) {
-                //TODO: remove the user in normal client_list
-                remove_node_by_sockfd(client_head, client_sockfd);
-            }
-        }
-        
+        register_client(client_head, regis_client_head, client_sockfd, nickName, args[1], args[2]);
     }
 
 }
@@ -632,7 +611,7 @@ void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* n
 void add_regis_clientNode_to_list(regis_clientNode** regis_client_head, int client_sockfd, char* nickname, char* password, int nickname_len, int password_len) {
     regis_clientNode* node = (regis_clientNode *)malloc(sizeof(regis_clientNode));
     node->client_sockfd = client_sockfd;
-    node->nickname = (char *)calloc(nickname_len, sizeof(char));
+    node->nickname = (char *)calloc(1024, sizeof(char));
     for(int i = 0; i <= nickname_len; i++) {
         node->nickname[i] = nickname[i];
     }
@@ -676,11 +655,11 @@ void request_nickname(clientNode *client_head, regis_clientNode* regis_client_he
         *nickname_len = remove_enter_in_buffer(nickname_buffer);
             
         if(check_nickname_valid(client_head, regis_client_head, nickname_buffer) == 0) {
-        char warn[] = "invalid nickname";
-                //send the warnning message to client
-        if(send(client_sockfd, warn, strlen(warn), 0) == -1) {
-            stop("could not send warning message to the client");
-        }
+            char warn[] = "invalid nickname";
+            //send the warnning message to client
+            if(send(client_sockfd, warn, strlen(warn), 0) == -1) {
+                stop("could not send warning message to the client");
+            }
         }else {
             char greeting_msg[] = "bienvenue";
             if(send(client_sockfd, greeting_msg, strlen(greeting_msg), 0) == -1) {
@@ -688,6 +667,145 @@ void request_nickname(clientNode *client_head, regis_clientNode* regis_client_he
             }
         }
     }while(check_nickname_valid(client_head, regis_client_head, nickname_buffer) == 0);
+}
+
+void register_client(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, char* currentNickName, char* newNickName, char* password) {
+    int create_successfully = 0;
+    
+    if(find_regis_client_by_sockfd(*regis_client_head, client_sockfd) != NULL) {
+        char warn_[] = "sorry you has already registered";
+        if(send(client_sockfd, warn_, strlen(warn_), 0) == -1) {
+            stop("error when sending warn_ in command handler");
+        }
+    }else {
+        if(strcmp(currentNickName, newNickName) == 0) {
+            
+            //TODO: add node to regis_client_list
+            //Metadata for regis_node: client_sockfd, nickname, password, nickname_len, password_len
+            add_regis_clientNode_to_list(regis_client_head, client_sockfd, newNickName, password, strlen(newNickName), strlen(password));
+            create_successfully = 1;
+            
+        }else {
+            //TODO: Check if there is a non registered client are actually using this args[1] as nickname
+            // If it is then refuse to create new regis client and exit current activity
+            // If it is not then create new regis client and set create_successfully to 1
+            clientNode* temp_client = find_client_by_nickname(*client_head, newNickName);
+            regis_clientNode* temp_regis_client = find_regis_client_by_nickname(*regis_client_head, newNickName);
+            char warn_buffer[] = "sorry this nickname is existed";
+            if(temp_client != NULL || temp_regis_client != NULL) {
+                if(send(client_sockfd, warn_buffer, strlen(warn_buffer), 0) == -1) {
+                    stop("error when send warn buffer in register case in command handler");
+                }
+            }else {
+                add_regis_clientNode_to_list(regis_client_head, client_sockfd, newNickName, password, strlen(newNickName), strlen(password));
+                create_successfully = 1;
+            }
+
+        }
+
+        if (create_successfully) {
+            //TODO: remove the user in normal client_list
+            remove_node_by_sockfd(client_head, client_sockfd);
+        }
+    }
+}
+
+void change_nickname_forcely(clientNode *client_head, regis_clientNode *regis_client_head, int client_sockfd, char* password, char* new_nickname) {
+    /*
+    Forcely change nickname by requesting the normal client which currently hold the newnickname to change its nickname
+    */
+
+    // PSEUDO Code
+    
+    // client_head -> [thu] -> [ngoc_ngan] -> NULL
+    // regis_client_head -> [an] -> NULL
+            
+    // Find register client by nickname
+
+    // Verify password
+            
+    // If it's not -> print password error to register user -> exit flow
+            
+    // If it is
+        // send waiting message to client
+        // find normal client which has new_nickname
+            
+        // If there is no such client -> just simply change -> exit flow 
+        // If there is
+            // Server sends a message to normal client to request it change to other nickname
+            // Server receive nickname and request normal client until this nickname valide
+            // change nickname for normal client
+            // change nickname for register client
+
+            // Inform to normal client and regis client their new nickname
+            // exit flow
+
+    regis_clientNode* regis_client = find_regis_client_by_sockfd(regis_client_head, client_sockfd);
+    
+    if (regis_client == NULL) {
+        stop("find regis_client error in change_nickname_forcely");
+    }
+
+    if(strcmp(password, regis_client->password) != 0) {
+        char pass_err[] = "Wrong password";
+        if(send(client_sockfd, pass_err, strlen(pass_err), 0) == -1) {
+            stop("send pass_err error in change_nickname_forcely");
+        }
+    }
+    else {
+        char wait_msg[] = "Please wait for the server request normal client changing its nickname";
+        if(send(client_sockfd, wait_msg, strlen(wait_msg), 0) == -1) {
+            stop("send wait_msg error in change_nickname_forcely");
+        }
+
+        clientNode* normal_client = find_client_by_nickname(client_head, new_nickname);
+
+
+        char change_success_msg[] = "change nickname successfully";
+        if(normal_client == NULL) {
+            char* current_nickname = (char*)calloc(BUFFER_SIZE, sizeof(char));
+    
+            strcpy(current_nickname, regis_client->nickname);
+            strcpy(regis_client->nickname, new_nickname);
+            
+            
+            if(send(client_sockfd, change_success_msg, strlen(change_success_msg), 0) == -1) {
+                stop("send change_success_msg error in change_nickname_forcely");
+            }
+            printf("\n%s has changed nickname to %s\n", current_nickname, new_nickname);
+        }else {
+            char change_nickname_rq[] = "Please change your nickname Please Please Please";
+            
+            if(send(normal_client->client_sockfd, change_nickname_rq, strlen(change_nickname_rq), 0) == -1 ) {
+                stop("send change_nickname_rq error in change_nickname_forcely");
+            }
+
+            char nickname_buffer[BUFFER_SIZE];
+            int nickname_len;
+            bzero(nickname_buffer, BUFFER_SIZE);
+            request_nickname(client_head, regis_client_head, normal_client->client_sockfd, nickname_buffer, &nickname_len);
+            
+            // change nickname of normal client to nickname_buffer
+            normal_client->nickname = (char*)calloc(sizeof(char), BUFFER_SIZE);
+            for(int i = 0; i < BUFFER_SIZE; i++) {
+                normal_client->nickname[i] = nickname_buffer[i];
+            }
+            
+            if(send(normal_client->client_sockfd, change_success_msg, strlen(change_success_msg), 0) == -1) {
+                stop("send change_success_msg error in change_nickname_forcely");
+            }
+            
+            // change nickname of regis client to new_nickname
+            strcpy(regis_client->nickname, new_nickname);
+            
+            if(send(client_sockfd, change_success_msg, strlen(change_success_msg), 0) == -1) {
+                stop("send change_success_msg error in change_nickname_forcely");
+            }
+
+        }
+        
+    }
+
 }
 
 void print_client_list(clientNode* client_head) {
