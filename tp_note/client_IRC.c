@@ -8,17 +8,31 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 
 #define PORT 1234
 #define BUFFER_SIZE 1024
 
 #define CLIENT_READY 0
 
+typedef struct Meta_data {
+    char* file_name;
+    int size;
+}Meta_data;
+
 void stop(char*);
 
 void connect_to_server(int *sockfd, struct sockaddr_in* server_addr);
 
 void chatting(int i, int sockfd);
+
+char **split_command(char *commande);
+
+int remove_enter_in_buffer(char* buffer);
+
+void clean_worlds_array(char **args);
+
+void client_command_handler(char** args, int sockfd);
 
 void send_nickname_to_server(int sockfd);
 
@@ -101,20 +115,116 @@ void chatting(int i, int sockfd)
 	
 	if (i == 0){
 		fgets(send_buf, BUFFER_SIZE, stdin);
-		if (strcmp(send_buf , "/quit\n") == 0) {
-			exit(0);
-		}else{
-			write(sockfd, send_buf, strlen(send_buf));
+        write(sockfd, send_buf, strlen(send_buf));
+
+        remove_enter_in_buffer(send_buf);
+        char** args = split_command(send_buf);
+        clean_worlds_array(args);
+
+        if(send_buf[0] == '/' && strcmp(args[0], "/send") == 0){    
+            client_command_handler(args, sockfd);
+        }else {
             if(strcmp(send_buf, "/exit\n") == 0) {
                 exit(0);
             }
         }
+        
 	}else {
 		nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0);
 		recv_buf[nbyte_recvd] = '\0';
 		printf("%s\n" , recv_buf);
 		fflush(stdout);
 	}
+}
+
+void client_command_handler(char** args, int sockfd) {
+    /*
+    This function for some speicial command that need to be handled in client side. Ex: send file command
+    */
+    if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
+        // Open file
+        FILE* file;
+        if((file = fopen(args[2], "r")) == NULL){
+            printf("\nfile doesn't exist\n");
+        }else{
+            printf("\nopen file successfully start sending meta data to server\n");
+            struct stat stat_buf;
+            stat("text_src.txt", &stat_buf);
+            Meta_data* meta_data = (Meta_data*)malloc(sizeof(meta_data));
+            meta_data->size = stat_buf.st_size;
+            meta_data->file_name = (char*)calloc(sizeof(char), 1024);
+            strncpy(meta_data->file_name, args[2], strlen(args[2]));
+
+            if(send(sockfd, meta_data, sizeof(meta_data), 0) == -1) {
+                stop("send meta_data error in client_command_handler");
+            }
+
+        }
+    
+    }
+}
+
+char **split_command(char *line)
+{
+    /*
+    Split line into multiple worlds with delimiter is space. Then return a array where
+    the world is stored
+    */
+    char **tokens = (char**)calloc(sizeof(char*), BUFFER_SIZE);
+    for(int i = 0; i < BUFFER_SIZE; i++) {
+        tokens[i] = (char*)calloc(sizeof(char), BUFFER_SIZE);
+    }
+    int i = 0; // for traversing line
+    int j = 0; // for traversing tokens
+    int k = 0; // for traversing tokens[j]
+
+    while(line[i] != '\0') {
+        if(line[i] == ' ') {
+            tokens[j][k] = '\0';
+            j++;
+            k = 0;
+        }else {
+            tokens[j][k++] = line[i];
+        }
+        i++;
+    }
+    tokens[j][k] = '\0';
+
+    for(int i = j+1; i < BUFFER_SIZE; i++) {
+        tokens[i] = NULL;
+    }
+    
+    return tokens;
+}
+
+int remove_enter_in_buffer(char* buffer) {
+    /*
+    replace '\n' in buffer by '\0'
+    Params: buffer
+    Return: the len of buffer from beginning to '\0'
+    */
+    int k;
+    for(k = 0; k < BUFFER_SIZE; k++) {
+        if(buffer[k] == '\n') {
+            buffer[k] = '\0';
+            break;
+        }
+    }
+    return k;
+}
+
+void clean_worlds_array(char **args) {
+    /*
+    call remove_enter_in_buffer on every worlds in args
+    */
+    int i_ = 0;
+    char *temp_buf = args[i_];
+
+    while(temp_buf != NULL) {
+        remove_enter_in_buffer(temp_buf);
+        i_++;
+        temp_buf = args[i_];
+    }
 }
 
 void stop(char *message) {

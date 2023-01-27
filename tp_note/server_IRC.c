@@ -9,6 +9,7 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/stat.h>
 
 #define PORT 1234
 #define BUFFER_SIZE 1024
@@ -16,11 +17,20 @@
 #define False 0
 #define MAX_CLIENT 3
 
-#define RED "\033[41m"
-#define YELLOW "\033[43m"
-#define GREEN "\033[42m"
-#define BLUE "\033[44m"
-#define GREY "\033[47m"
+#define RED "\e[0;31m"
+#define YELLOW "\e[0;33m"
+#define GREEN "\e[0;32m"
+#define BLUE "\e[0;34m"
+
+#define NORMAL_MESSAGE 0
+#define ERROR_MESSAGE 1
+#define INFORM_MESSAGE 2
+#define FILE_MESSAGE 3
+
+typedef struct Message {
+    int messageType;
+    char* body;
+}Message;
 
 typedef struct clientNode {
     int client_sockfd;
@@ -52,10 +62,11 @@ void send_private_message(clientNode* client_head, regis_clientNode* regis_clien
 void client_exit_handling(clientNode** client_head, regis_clientNode** regis_client_head, int client_sockfd, fd_set* readfds);
 void change_color_buffer(char* buffer, char* color_code, char* buffer__);
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd);
+void alerte_personally(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int sockfd_src, int sockfd_dst);
 
 // Function for buffer handling
 char **split_command(char *commande);
-void assembler_args_into_buffer(char** args, char* buffer);
+void assembler_args_into_buffer_from_index(char** args, int index, char* buffer);
 int remove_enter_in_buffer(char* buffer);
 void clean_worlds_array(char **args);
 
@@ -102,16 +113,16 @@ int main() {
             stop("error occurs when selecting the ready socket");
         }
 
-        printf("\nnormal client list\n");
-        print_client_list(client_head);
+        // printf("\nnormal client list\n");
+        // print_client_list(client_head);
 
 
-        printf("\nregis client list\n");
-        regis_clientNode* temp = regis_client_head;
-        while(temp != NULL) {
-            printf("\n%d %s %s\n", temp->client_sockfd, temp->nickname, temp->password);
-            temp = temp->next;
-        }
+        // printf("\nregis client list\n");
+        // regis_clientNode* temp = regis_client_head;
+        // while(temp != NULL) {
+        //     printf("\n%d %s %s\n", temp->client_sockfd, temp->nickname, temp->password);
+        //     temp = temp->next;
+        // }
 
         for (int i = 0; i <= fdmax; i++){
 			if (FD_ISSET(i, &actual_readfds)){
@@ -359,12 +370,57 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     }
     
     else if(strcmp(args[0], "/alerte") == 0) {
-        char *buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
-        assembler_args_into_buffer(args, buffer);
-        alerte_broadcast(buffer, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+        /*
 
+        PSEUDO_CODE
+        Try to find is there a client or regis_client who has a nickname as args[1]
         
+        If it is -> alerte broadcast
+        If it is not -> alerte personally
+
+        */
+
+        // Find client
+        clientNode* client = find_client_by_nickname(*client_head, args[1]);
+        regis_clientNode* regis_client = NULL;
+        int sockfd_dest;
+
+        if(client == NULL) {
+            regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]);
+        }
+        
+        char *buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
+
+        // If there is any client -> alerte broadcast
+        if(client == NULL && regis_client == NULL) {
+            assembler_args_into_buffer_from_index(args, 1, buffer);
+            alerte_broadcast(buffer, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+        }
+        // If there is -> alerte personally
+        else {
+            if(client != NULL) {
+                sockfd_dest = client->client_sockfd;
+            }else {
+                sockfd_dest = regis_client->client_sockfd;
+            }
+            assembler_args_into_buffer_from_index(args, 2, buffer);
+            alerte_personally(buffer, *client_head, *regis_client_head, client_sockfd, sockfd_dest);
+        }
     }
+
+    else if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
+        /*
+        PSEUDO CODE
+        Try to find the client who has speudo as args[1]
+        If client is NULL -> send client_not_found to client
+        Try to open the file as its name is args[2] with permission read
+        If file can not be opened -> send file_not_opened to client
+
+        Send meta data 
+        */
+        printf("\nstart listenning meta data ...\n");
+    }
+
 }
 
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
@@ -389,6 +445,31 @@ void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* r
     forward_message(readfds, fdmax, master_sockfd, client_sockfd, buffer__, strlen(buffer__));
 }
 
+void alerte_personally(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int sockfd_src, int sockfd_dst) {
+    char* buffer__ = (char *)calloc(sizeof(char), 1024);
+    char* prefix__ = (char *)calloc(sizeof(char), 1024);
+
+    char* prefix = (char *)calloc(sizeof(char), 1024);
+    clientNode* client = find_client_by_sockfd(client_head, sockfd_src);
+    regis_clientNode* regis_client;
+    if(client == NULL) {
+        regis_client = find_regis_client_by_sockfd(regis_client_head, sockfd_src);
+        snprintf(prefix, BUFFER_SIZE, "%s%s", "alerte from ", regis_client->nickname);
+        if(regis_client == NULL) {
+            stop("find client error in command handler (alerte)");
+        }
+    }else {
+        snprintf(prefix, BUFFER_SIZE, "%s%s", "alerte from ", client->nickname);
+    }
+
+    change_color_buffer(prefix, RED, prefix__);
+    message_formatted(buffer, prefix__, buffer__);
+    
+    if(send(sockfd_dst, buffer__, strlen(buffer__), 0) == -1) {
+        stop("send alerte to client error in alerte_personally");
+    }
+}
+
 void change_color_buffer(char* buffer, char* color_code, char* buffer__) {
     /*
     change color message by concatenating color_ascii code and buffer and store the result in buffer__
@@ -398,11 +479,12 @@ void change_color_buffer(char* buffer, char* color_code, char* buffer__) {
     buffer_offset[strlen(buffer)] = '\0';
     
     //example: \033[41mThe password is wrong OR you are not registered client\033[m
-    snprintf(buffer__, BUFFER_SIZE, "%s%s%s", color_code, buffer_offset, "\033[m");
+    // snprintf(buffer__, BUFFER_SIZE, "%s%s%s", color_code, buffer_offset, "e[0;m");
+    snprintf(buffer__, BUFFER_SIZE, "%s%s%s", color_code, buffer_offset, "\033[0m");
 }
 
-void assembler_args_into_buffer(char** args, char* buffer) {
-    int k = 1;
+void assembler_args_into_buffer_from_index(char** args, int index, char* buffer) {
+    int k = index;
     int j = 0;
     int i = 0;
     while(args[k] != NULL) {
@@ -417,6 +499,21 @@ void assembler_args_into_buffer(char** args, char* buffer) {
 }
 
 void send_server_date_to_client(int client_sockfd) {
+    /*
+    Get current time, format it into year-month-hour-minuite-seconde stored in buffer__, then send
+    it to client
+    */
+    char buffer_time[50];
+    time_t current_time = time(NULL);
+    strftime(buffer_time, sizeof(buffer_time), "%Y-%m-%d %H:%M:%S", localtime(&current_time));
+
+    char* buffer__ = (char*)calloc(sizeof(char), BUFFER_SIZE);
+
+    change_color_buffer(buffer_time, GREEN, buffer__);
+
+    if(send(client_sockfd, buffer__, strlen(buffer__), 0) == -1) {
+        stop("send server time to client error in send_server_date_to_client");
+    }
 
 }
 
