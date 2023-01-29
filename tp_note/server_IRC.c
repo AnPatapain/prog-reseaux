@@ -1,18 +1,5 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <errno.h>
-#include <sys/stat.h>
+#include "message.h"
 
-#define PORT 1234
-#define BUFFER_SIZE 1024
 #define TRUE 1
 #define False 0
 #define MAX_CLIENT 3
@@ -27,10 +14,6 @@
 #define INFORM_MESSAGE 2
 #define FILE_MESSAGE 3
 
-typedef struct Message {
-    int messageType;
-    char* body;
-}Message;
 
 typedef struct clientNode {
     int client_sockfd;
@@ -265,7 +248,7 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
             message_formatted(buffer, nickName, buffer__);
             printf("%s\n",buffer__);
 
-            forward_message(readfds, fdmax, master_sockfd, i, buffer__, strlen(buffer__));
+            forward_message(readfds, fdmax, master_sockfd, i, buffer__, BUFFER_SIZE);
         }
 
     }
@@ -319,7 +302,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
-    
+    printf("\ncommand from client: %s\n", args[0]);
     if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
         char* new_nickname = args[1];
 
@@ -346,6 +329,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     
     else if(strcmp(args[0], "/exit") == 0) {
         client_exit_handling(client_head, regis_client_head, client_sockfd, readfds);
+        printf("\nclient %d aka %s disconnected\n", client_sockfd, nickName);
     }
     
     else if(strcmp(args[0], "/register") == 0 && args[1] != NULL && args[2] != NULL) {
@@ -409,16 +393,86 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     }
 
     else if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
-        /*
-        PSEUDO CODE
-        Try to find the client who has speudo as args[1]
-        If client is NULL -> send client_not_found to client
-        Try to open the file as its name is args[2] with permission read
-        If file can not be opened -> send file_not_opened to client
-
-        Send meta data 
-        */
         printf("\nstart listenning meta data ...\n");
+
+        char open_success[BUFFER_SIZE];
+        bzero(open_success, BUFFER_SIZE);
+        int size;
+        char* file_name_buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
+
+        if(recv(client_sockfd, open_success, BUFFER_SIZE, 0) == -1) {
+            stop("recv open_success error in /send in server");
+        }
+
+        if(strncmp(open_success, "ok", 2) == 0) {
+
+            // Receive meta data from client
+            if(recv(client_sockfd, &size, sizeof(int), 0) == -1) {
+                stop("receive meta data size error in command handler");
+            }
+
+            if(recv(client_sockfd, file_name_buffer, BUFFER_SIZE, 0) == -1) {
+                stop("receive meta data file name error in command handler");
+            }
+
+            printf("\nReceived meta data\n");
+            // find client_dst
+            int sockfd_dst = -1;
+            clientNode* client = find_client_by_nickname(*client_head, args[1]);
+            regis_clientNode* regis_client;
+
+            if(client == NULL) {
+                regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]);
+            }
+
+            if(client != NULL || regis_client != NULL) {
+                if(client != NULL) {
+                    sockfd_dst = client->client_sockfd;
+                }else {
+                    sockfd_dst = regis_client->client_sockfd;
+                }
+            }
+            printf("\nsockfd dest: %d\n", sockfd_dst);
+            if(sockfd_dst != -1) {
+                // Inform to recipient that the message will be FILE TYPE
+                if(send(sockfd_dst, MESSAGE_FILE_TYPE, BUFFER_SIZE, 0) == -1) {
+                    stop("send message file type error");
+                }
+
+                // Forward meta data to recipient
+                if(send(sockfd_dst, &size, sizeof(int), 0) == -1) {
+                    stop("send meta_data size error in server_command_handler");
+                }
+
+                if(send(sockfd_dst, file_name_buffer, strlen(file_name_buffer), 0) == -1) {
+                    stop("send meta_data file name error in server_command_handler");
+                }
+
+                printf("\nforward meta data successfully start receiving data chunk\n");
+
+                // Send a ready message to client
+                char ready[] = "ready";
+                if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
+                    stop("send ready error in server");
+                }
+
+                //start receiving data chunk from client and forward to recipient
+                
+                char *data_chunk = (char *) calloc(sizeof(char), BUFFER_SIZE);
+                int bytes_received = recv(client_sockfd, data_chunk, size, 0);
+                if(bytes_received == -1) {
+                    stop("receiving data chunk error in server");
+                }
+                int bytes_forward = send(sockfd_dst, data_chunk, size, 0);
+                if(bytes_forward == -1) {
+                    stop("forwarding data chunk error in server");
+                }
+                printf("\nexit flow\n");
+            }
+
+
+        }
+        
     }
 
 }

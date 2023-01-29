@@ -1,24 +1,6 @@
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/stat.h>
-
-#define PORT 1234
-#define BUFFER_SIZE 1024
+#include "message.h"
 
 #define CLIENT_READY 0
-
-typedef struct Meta_data {
-    char* file_name;
-    int size;
-}Meta_data;
 
 void stop(char*);
 
@@ -111,6 +93,7 @@ void chatting(int i, int sockfd)
 {
 	char send_buf[BUFFER_SIZE];
 	char recv_buf[BUFFER_SIZE];
+    bzero(recv_buf, BUFFER_SIZE);
 	int nbyte_recvd;
 	
 	if (i == 0){
@@ -121,18 +104,79 @@ void chatting(int i, int sockfd)
         char** args = split_command(send_buf);
         clean_worlds_array(args);
 
-        if(send_buf[0] == '/' && strcmp(args[0], "/send") == 0){    
+        if(send_buf[0] == '/' && strcmp(args[0], "/send") == 0){
+            printf("file handler will be activated");    
             client_command_handler(args, sockfd);
         }else {
-            if(strcmp(send_buf, "/exit\n") == 0) {
+            if(strncmp(send_buf, "/exit", 5) == 0) {
                 exit(0);
             }
         }
         
 	}else {
-		nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0);
-		recv_buf[nbyte_recvd] = '\0';
-		printf("%s\n" , recv_buf);
+        // Receive MESSAGE_TYPE
+        if( (nbyte_recvd = recv(sockfd, recv_buf, BUFFER_SIZE, 0)) == -1 ) {
+            stop("receive inform message type error in client");
+        }  
+		
+        if(strcmp(recv_buf, MESSAGE_FILE_TYPE) == 0) {
+            // receive Meta Data from server
+            int size;
+            char* file_name_buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
+        
+            if(recv(sockfd, &size, sizeof(int), 0) == -1) {
+                stop("receive meta data size error client side");
+            }
+
+            if(recv(sockfd, file_name_buffer, BUFFER_SIZE, 0) == -1) {
+                stop("receive meta data file name error client side");
+            }
+
+            printf("\nmeta data: %s, %d\n",file_name_buffer, size);
+
+            // Use meta data to create a file in current directory
+            char *file_name_dst = (char*)calloc(sizeof(char), BUFFER_SIZE);
+            char *dot = strrchr(file_name_buffer, '.');
+            int len = dot - file_name_buffer;
+            sprintf(file_name_dst, "%.*s_dst.txt", len, file_name_buffer);
+
+            FILE *fp = fopen("text_dst.txt", "w");
+            if (fp == NULL) {
+                stop("Error opening file");
+            }
+
+            // Start receiving data chunk from server and write to file
+            char *data_chunk = (char *) malloc(BUFFER_SIZE);
+            int bytes_received = recv(sockfd, data_chunk, size, 0);
+            if(bytes_received == -1) {
+                stop("receiving data chunk error in client");
+            }
+            printf("\n+++++++++++++++++%s+++++++++++++++++++++\n", file_name_dst);
+            printf("\n%s\n", data_chunk);
+            printf("\n+++++++++++++++++++++++++++++++++++++++++\n");
+            
+            char data_chunk_test[] = "ciao\nbonjour\n";
+            int bytes_written = fwrite(data_chunk_test, 1, strlen(data_chunk_test), fp);
+            if(bytes_written != strlen(data_chunk_test)) {
+                stop("error during writting to file dst");
+            }
+            // int bytes_written = fwrite(data_chunk, 1, bytes_received, fp);
+            // if(bytes_written != bytes_received) {
+            //     stop("error during writting to file dst");
+            // }
+            printf("\nbytes written: %d\n", bytes_written);
+            printf("\nexit flow\n");
+
+            // // Free the memory for the data chunk
+            // free(data_chunk);
+
+            // // Close the file
+            fclose(fp);
+        }
+        
+        else {
+            printf("%s\n" , recv_buf);
+        }
 		fflush(stdout);
 	}
 }
@@ -144,20 +188,58 @@ void client_command_handler(char** args, int sockfd) {
     if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
         // Open file
         FILE* file;
+        char open_success[] = "ok";
+        char open_failure[] = "not ok";
         if((file = fopen(args[2], "r")) == NULL){
             printf("\nfile doesn't exist\n");
+            if(send(sockfd, open_failure, BUFFER_SIZE, 0) == -1) {
+                stop("send open_failure error in client_command handler");
+            }
         }else{
+            if(send(sockfd, open_success, BUFFER_SIZE, 0) == -1) {
+                stop("send open_success error in client_command handler");
+            }
             printf("\nopen file successfully start sending meta data to server\n");
             struct stat stat_buf;
-            stat("text_src.txt", &stat_buf);
-            Meta_data* meta_data = (Meta_data*)malloc(sizeof(meta_data));
-            meta_data->size = stat_buf.st_size;
-            meta_data->file_name = (char*)calloc(sizeof(char), 1024);
-            strncpy(meta_data->file_name, args[2], strlen(args[2]));
+            stat(args[2], &stat_buf);
 
-            if(send(sockfd, meta_data, sizeof(meta_data), 0) == -1) {
-                stop("send meta_data error in client_command_handler");
+            // Send meta data to server
+            int size = stat_buf.st_size;
+
+            if(send(sockfd, &size, sizeof(int), 0) == -1) {
+                stop("send meta_data size error in client_command_handler");
             }
+
+            if(send(sockfd, args[2], strlen(args[2]), 0) == -1) {
+                stop("send meta_data file name error in client_command_handler");
+            }
+
+            // receive a ready message of client
+            char ready[BUFFER_SIZE];
+            bzero(ready, BUFFER_SIZE);
+            if(recv(sockfd, ready, BUFFER_SIZE, 0) == -1) {
+                stop("receive ready error in client side");
+            }
+
+            printf("\nis ready: %s\n", ready);
+            if(strncmp(ready, "ready", 5) == 0) {
+                printf("\nstart sending data file chunk\n");
+                // Start reading file and send to server data chunk
+                char *data_chunk = (char *) malloc(BUFFER_SIZE);
+                
+                int bytes_send;
+                int bytes_read = fread(data_chunk, 1, BUFFER_SIZE, file);
+                if(send(sockfd, data_chunk, bytes_read, 0) == -1) {
+                    stop("sending data chunk error in client");
+                }
+                printf("\nexit flow\n");
+                // free(data_chunk);
+
+                // Close the file
+                fclose(file);
+            }
+
+            
 
         }
     
