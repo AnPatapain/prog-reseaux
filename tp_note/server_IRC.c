@@ -8,6 +8,7 @@
 #define YELLOW "\e[0;33m"
 #define GREEN "\e[0;32m"
 #define BLUE "\e[0;34m"
+#define RESET_COLOR "\033[0m"
 
 #define NORMAL_MESSAGE 0
 #define ERROR_MESSAGE 1
@@ -197,8 +198,8 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
     /*
     Chatting between server and client. There are two big case.
     Case1: the message from client start with / => server must handle the command
-    Case2: the message from client is normal message => server must forward it to all clients in readfds except for
-    the one that just has sent the message
+    Case2: the message from client is normal message => server must forward it to all clients 
+    in readfds except for the one that just has sent the message
     */
     
     // Find which client in client list that have sent the message
@@ -302,7 +303,6 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     /*
     Handle diverse command by calling the corresponding function based upon the command args
     */
-    printf("\ncommand from client: %s\n", args[0]);
     if(strcmp(args[0], "/nickname") == 0 && args[1] != NULL) {
         char* new_nickname = args[1];
 
@@ -355,15 +355,12 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     
     else if(strcmp(args[0], "/alerte") == 0) {
         /*
-
         PSEUDO_CODE
         Try to find is there a client or regis_client who has a nickname as args[1]
         
         If it is -> alerte broadcast
         If it is not -> alerte personally
-
         */
-
         // Find client
         clientNode* client = find_client_by_nickname(*client_head, args[1]);
         regis_clientNode* regis_client = NULL;
@@ -393,7 +390,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     }
 
     else if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
-        printf("\nstart listenning meta data ...\n");
+        printf("\n\e[0;32mstart listenning for meta data ...\033[0m\n");
 
         char open_success[BUFFER_SIZE];
         bzero(open_success, BUFFER_SIZE);
@@ -415,7 +412,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
                 stop("receive meta data file name error in command handler");
             }
 
-            printf("\nReceived meta data\n");
+            printf("\n\e[0;32msuccessfully received meta data from client\033[0m\n");
             // find client_dst
             int sockfd_dst = -1;
             clientNode* client = find_client_by_nickname(*client_head, args[1]);
@@ -432,7 +429,7 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
                     sockfd_dst = regis_client->client_sockfd;
                 }
             }
-            printf("\nsockfd dest: %d\n", sockfd_dst);
+
             if(sockfd_dst != -1) {
                 // Inform to recipient that the message will be FILE TYPE
                 if(send(sockfd_dst, MESSAGE_FILE_TYPE, BUFFER_SIZE, 0) == -1) {
@@ -444,16 +441,26 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
                     stop("send meta_data size error in server_command_handler");
                 }
 
+                printf("\nfile_name_buffer before send to recipient: %s\n", file_name_buffer);
                 if(send(sockfd_dst, file_name_buffer, strlen(file_name_buffer), 0) == -1) {
                     stop("send meta_data file name error in server_command_handler");
                 }
 
-                printf("\nforward meta data successfully start receiving data chunk\n");
+                printf("\n\e[0;32msuccessfully forward meta data start receiving data chunk ...\033[0m\n");
+                
+                // listenning for ready message from recipient
+                char ready_listenned[BUFFER_SIZE];
+                bzero(ready_listenned, BUFFER_SIZE);
+                if(recv(sockfd_dst, ready_listenned, BUFFER_SIZE, 0) == -1) {
+                    stop("receive ready error in server");
+                }
 
-                // Send a ready message to client
-                char ready[] = "ready";
-                if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
-                    stop("send ready error in server");
+                if(strncmp(ready_listenned, "ready", 5) == 0) {
+                    // Send a ready message to client
+                    char ready[] = "ready";
+                    if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
+                        stop("send ready error in server");
+                    }
                 }
 
                 //start receiving data chunk from client and forward to recipient
@@ -467,7 +474,8 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
                 if(bytes_forward == -1) {
                     stop("forwarding data chunk error in server");
                 }
-                printf("\nexit flow\n");
+                printf("\n\e[0;32msuccessfully forward data chunk to recipient ...\033[0m\n");
+                printf("\nexit file send-recv flow\n");
             }
 
 
