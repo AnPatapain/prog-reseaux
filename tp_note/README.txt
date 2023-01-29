@@ -1,6 +1,16 @@
 Pour compiler: "make"
 Pour clean: "make clean"
 
+Commentaire: Je pense qu'il serait mieux de catégoriser les messages en différents types : message normal, message d'information, 
+message d'erreur, message de fichier. Ensuite, je pourrais changer la couleur en fonction du type de 
+message (rouge pour les messages d'erreur, vert pour les messages d'information). 
+Cependant, j'ai réalisé cela trop tard (lorsque mon serveur avait déjà plus de 1000 lignes de code). 
+Ainsi, j'ai décidé de ne rien changer.
+
+Quand vous testez la fonctionalité envoyer le fichier. Si vous voyez "exit file send-recv flow" dans serveur, client qui envoie le fichier
+et client qui recois le fichier c'est a dire la processus send-recv-forward fichier est bien terminé. Si non, on a un bouge.
+J'ai fait de mon mieux pour anticiper toutes les erreurs possibles. Cependant, cela peut toujours arriver en marge
+
 1) Fonctionalités
     > client normal et client registré
     > changer le nickname pour le client normal et changer le nickname avec mot de passe
@@ -26,5 +36,12 @@ Pour clean: "make clean"
     > le serveur envoyer le signal ready_to_receive_file a la client
     > la client lire le fichier et envoyer au serveur
     > le serveur distribue le fichier au recipient
+
+3) Tester envoyer le fichier
+    > Envoyer le text.txt, le fichier text_dst.txt va etre crée automatiquement (par ex: si vous envoyer name.txt le name_dst.txt va etre crée)
+
+4) Mon limite
+    > Je ne peut que envoyer le fichier avec la taille < 1024. Parce que j'ai essayé de séparer le fichier en multiples data_chunk et les 
+    envoyer en utilisant la boucle While mais ça marche pas.
 
 

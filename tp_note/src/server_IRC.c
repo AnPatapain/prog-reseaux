@@ -204,7 +204,7 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
     */
     
     // Find which client in client list that have sent the message
-    char *nickName = (char *)malloc(sizeof(char) * BUFFER_SIZE);
+    char nickName[BUFFER_SIZE];
     bzero(nickName, BUFFER_SIZE);
     clientNode* client = find_client_by_sockfd(*client_head, i);
     regis_clientNode* regis_client;
@@ -245,7 +245,7 @@ void chatting(int i, fd_set *readfds, int master_sockfd, int fdmax, clientNode**
             command_handler(args, i, nickName, client_head, regis_client_head, readfds, fdmax, master_sockfd);
 
         }else {
-            char* buffer__ = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+            char buffer__[BUFFER_SIZE];
             bzero(buffer__, BUFFER_SIZE);
             message_formatted(buffer, nickName, buffer__);
             printf("%s\n",buffer__);
@@ -440,16 +440,16 @@ void send_message_with_color(char* color_code, char** args, clientNode* client_h
 void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* client_head, int client_sockfd, char** args) {
     printf("\n\e[0;32mstart listenning for meta data ...\033[0m\n");
 
-    char open_success[BUFFER_SIZE];
-    bzero(open_success, BUFFER_SIZE);
+    char open_status[BUFFER_SIZE];
+    bzero(open_status, BUFFER_SIZE);
     int size;
     char* file_name_buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
 
-    if(recv(client_sockfd, open_success, BUFFER_SIZE, 0) == -1) {
-        stop("recv open_success error in /send in server");
+    if(recv(client_sockfd, open_status, BUFFER_SIZE, 0) == -1) {
+        stop("recv open_status error in /send in server");
     }
 
-    if(strncmp(open_success, "ok", 2) == 0) {
+    if(strncmp(open_status, "ok", 2) == 0) {
 
         // Receive meta data from client
         if(recv(client_sockfd, &size, sizeof(int), 0) == -1) {
@@ -477,8 +477,14 @@ void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* 
                 sockfd_dst = regis_client->client_sockfd;
             }
         }
-
-        if(sockfd_dst != -1) {
+        if(sockfd_dst == -1) {
+            // Send a notReady message to client
+            char ready[] = "notReady";
+            if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
+                stop("send notReady error in server");
+            }
+        }
+        else if(sockfd_dst != -1) {
             // Inform to recipient that the message will be FILE TYPE
             if(send(sockfd_dst, MESSAGE_FILE_TYPE, BUFFER_SIZE, 0) == -1) {
                 stop("send message file type error");
@@ -521,10 +527,14 @@ void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* 
             if(bytes_forward == -1) {
                 stop("forwarding data chunk error in server");
             }
+
             printf("\n\e[0;32msuccessfully forward data chunk to recipient ...\033[0m\n");
-            printf("\nexit file send-recv flow\n");
+            
         }
+    }else {
+        printf("\n\e[0;31munsuccessfully open file in client side\033[0m\n");
     }
+    printf("\nexit file send-recv flow\n");
 }
 
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
@@ -723,7 +733,7 @@ void send_private_message(clientNode* client_head, regis_clientNode* regis_clien
     regis_clientNode* regis_client_node = find_regis_client_by_nickname(regis_client_head, args[1]);
 
     if(client_node == NULL && regis_client_node == NULL) {
-        char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+        char error_message[BUFFER_SIZE];
         bzero(error_message, BUFFER_SIZE);
         strcpy(error_message, "sorry we could not find the client you want to send the message to!");
         
@@ -732,14 +742,18 @@ void send_private_message(clientNode* client_head, regis_clientNode* regis_clien
         }
     }
     else {
-        char *private_msg = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        char private_msg[BUFFER_SIZE];
         bzero(private_msg, BUFFER_SIZE);
         assembler_args_into_buffer_from_index(args, 2, private_msg);
-        char* prefix = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        
+        char prefix[BUFFER_SIZE];
+        
         bzero(prefix, BUFFER_SIZE);
         sprintf(prefix, "%s%s", "private msg from ", nickName_src);
 
-        char* private_buffer = (char*)malloc(sizeof(char) * BUFFER_SIZE);
+        
+        char private_buffer[BUFFER_SIZE];
+        
         bzero(private_buffer, BUFFER_SIZE);
 
         message_formatted(private_msg, prefix, private_buffer);
@@ -764,7 +778,9 @@ void change_nickname(clientNode* client_head, regis_clientNode* regis_client_hea
     */
     if(check_nickname_valid(client_head, regis_client_head, new_nickname) == 0) {
         //the new nickname is already existed ! send a error message to the client
-        char* error_message = (char*)malloc(sizeof(char)*BUFFER_SIZE);
+
+        char error_message[BUFFER_SIZE];
+       
         bzero(error_message, BUFFER_SIZE);
         strcpy(error_message, "sorry this nickname is already used by another user!");
         
@@ -896,9 +912,15 @@ void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* n
     Add clientNode which has nickname_buffer, client_sockfd at the beginning of client_list
     If the client_list was not created then create it
     */
+    printf("\nbefore malloc 1 in add_clientNode_to_list\n");
     clientNode* node = (clientNode *)malloc(sizeof(clientNode));
+    printf("\nafter malloc 1 in add_clientNode_to_list\n");
     node->client_sockfd = client_sockfd;
+
+    printf("\nbefore malloc 2 in add_clientNode_to_list\n");
     node->nickname = (char *)malloc(sizeof(char) * nickname_len);
+    printf("\nafter malloc 2 in add_clientNode_to_list\n");
+
     for(int i = 0; i <= nickname_len; i++) {
         node->nickname[i] = nickname_buffer[i];
     }
@@ -912,7 +934,10 @@ void add_clientNode_to_list(clientNode** client_head ,int client_sockfd, char* n
 }
 
 void add_regis_clientNode_to_list(regis_clientNode** regis_client_head, int client_sockfd, char* nickname, char* password, int nickname_len, int password_len) {
+    printf("\nbefore malloc in add_regis_clientNode_to_list\n");
     regis_clientNode* node = (regis_clientNode *)malloc(sizeof(regis_clientNode));
+    printf("\nafter malloc in add_regis_clientNode_to_list\n");
+    
     node->client_sockfd = client_sockfd;
     node->nickname = (char *)calloc(1024, sizeof(char));
     for(int i = 0; i <= nickname_len; i++) {

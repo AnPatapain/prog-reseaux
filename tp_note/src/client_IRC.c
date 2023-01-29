@@ -165,7 +165,7 @@ void receive_file_handler(int sockfd) {
     int len = dot - file_name_buffer;
     sprintf(file_name_dst, "%.*s_dst.txt", len, file_name_buffer);
 
-    FILE *fp = fopen("text_dst.txt", "w");
+    FILE *fp = fopen(file_name_dst, "w");
     if (fp == NULL) {
         stop("Error opening file");
     }
@@ -178,6 +178,7 @@ void receive_file_handler(int sockfd) {
 
     // Start receiving data chunk from server and write to file
     char *data_chunk = (char *) malloc(BUFFER_SIZE);
+    
     int bytes_received = recv(sockfd, data_chunk, size, 0);
     if(bytes_received == -1) {
         stop("receiving data chunk error in client");
@@ -192,13 +193,13 @@ void receive_file_handler(int sockfd) {
     }
 
     printf("\n\e[0;32m Le fichier a ete enregistre dans votre repertoire courante %s\033[0m\n", file_name_dst);
-    printf("\nexit file send-recv flow\n");
 
     // // Free the memory for the data chunk
     free(data_chunk);
 
     // // Close the file
     fclose(fp);
+    printf("\nexit file send-recv flow\n");
 }
 
 void send_file_handler(char** args, int sockfd) {
@@ -245,21 +246,25 @@ void send_file_handler(char** args, int sockfd) {
 
         if(strncmp(ready, "ready", 5) == 0) {
             printf("\n\e[0;32mstart sending data file chunk\033[0m\n");
+
             // Start reading file and send to server data chunk
             char *data_chunk = (char *) malloc(BUFFER_SIZE);
-                
+            
             int bytes_read = fread(data_chunk, 1, BUFFER_SIZE, file);
             if(send(sockfd, data_chunk, bytes_read, 0) == -1) {
                 stop("sending data chunk error in client");
             }
-            printf("\n\e[0;32mSuccessfully sending data file chunk\033[0m\n");
-            printf("\nexit file send-recv flow\n");
-            free(data_chunk);
 
+            printf("\n\e[0;32mSuccessfully sending data file chunk\033[0m\n");
+            
+            free(data_chunk);
             // Close the file
             fclose(file);
+        }else {
+            printf("\n\e[0;31mserver can not find the client who you want to send file to\033[0m\n");
         }
     }
+    printf("\nexit file send-recv flow\n");
     
 }
 
