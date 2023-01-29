@@ -48,6 +48,7 @@ void change_color_buffer(char* buffer, char* color_code, char* buffer__);
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd);
 void alerte_personally(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int sockfd_src, int sockfd_dst);
 void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* client_head, int client_sockfd, char** args);
+void send_message_with_color(char* color_code, char** args, clientNode* client_head, regis_clientNode *regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd);
 
 // Function for buffer handling
 char **split_command(char *commande);
@@ -393,6 +394,47 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
         send_file_command_handler(*regis_client_head, *client_head, client_sockfd, args);        
     }
 
+    // else if(strcmp(args[0], "/green") == 0 && args[1] != NULL) {
+    //     send_message_with_color(GREEN, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    // }
+
+    // else if(strcmp(args[0], "/yellow") == 0 && args[1] != NULL) {
+    //     send_message_with_color(YELLOW, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    // }
+
+    // else if(strcmp(args[0], "/red") == 0 && args[1] != NULL) {
+    //     send_message_with_color(RED, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    // }
+
+    // else if(strcmp(args[0], "/blue") == 0 && args[1] != NULL) {
+    //     send_message_with_color(BLUE, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    // }
+
+}
+
+void send_message_with_color(char* color_code, char** args, clientNode* client_head, regis_clientNode *regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
+    char* buffer_ = (char *)calloc(sizeof(char), BUFFER_SIZE);
+    char* buffer__ = (char *)calloc(sizeof(char), BUFFER_SIZE);
+
+    char* buffer = (char *)calloc(sizeof(char), BUFFER_SIZE);
+    assembler_args_into_buffer_from_index(args, 1, buffer);
+
+    char* prefix = (char *)calloc(sizeof(char), BUFFER_SIZE);
+    clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
+    regis_clientNode* regis_client;
+    if(client == NULL) {
+        regis_client = find_regis_client_by_sockfd(regis_client_head, client_sockfd);
+        snprintf(prefix, BUFFER_SIZE, "%s", regis_client->nickname);
+        if(regis_client == NULL) {
+            stop("find client error in command handler (send message with color)");
+        }
+    }else {
+        snprintf(prefix, BUFFER_SIZE, "%s", client->nickname);
+    }
+
+    message_formatted(buffer, prefix, buffer_);
+    change_color_buffer(buffer_, color_code, buffer__);
+    forward_message(readfds, fdmax, master_sockfd, client_sockfd, buffer__, strlen(buffer__));
 }
 
 void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* client_head, int client_sockfd, char** args) {
@@ -487,10 +529,10 @@ void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* 
 }
 
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
-    char* buffer__ = (char *)calloc(sizeof(char), 1024);
-    char* prefix__ = (char *)calloc(sizeof(char), 1024);
+    char* buffer__ = (char *)calloc(sizeof(char), BUFFER_SIZE);
+    char* prefix__ = (char *)calloc(sizeof(char), BUFFER_SIZE);
 
-    char* prefix = (char *)calloc(sizeof(char), 1024);
+    char* prefix = (char *)calloc(sizeof(char), BUFFER_SIZE);
     clientNode* client = find_client_by_sockfd(client_head, client_sockfd);
     regis_clientNode* regis_client;
     if(client == NULL) {
@@ -509,10 +551,10 @@ void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* r
 }
 
 void alerte_personally(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int sockfd_src, int sockfd_dst) {
-    char* buffer__ = (char *)calloc(sizeof(char), 1024);
-    char* prefix__ = (char *)calloc(sizeof(char), 1024);
+    char* buffer__ = (char *)calloc(sizeof(char), BUFFER_SIZE);
+    char* prefix__ = (char *)calloc(sizeof(char), BUFFER_SIZE);
 
-    char* prefix = (char *)calloc(sizeof(char), 1024);
+    char* prefix = (char *)calloc(sizeof(char), BUFFER_SIZE);
     clientNode* client = find_client_by_sockfd(client_head, sockfd_src);
     regis_clientNode* regis_client;
     if(client == NULL) {
@@ -923,7 +965,7 @@ void request_nickname(clientNode *client_head, regis_clientNode* regis_client_he
                 stop("could not send warning message to the client");
             }
         }else {
-            char greeting_msg[] = "bienvenue ";
+            char greeting_msg[] = "bienvenue";
             if(send(client_sockfd, greeting_msg, strlen(greeting_msg), 0) == -1) {
                 stop("could not send greeting message to the client");
             }

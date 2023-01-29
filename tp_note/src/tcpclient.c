@@ -20,7 +20,6 @@ void stop(char *message) {
 int main() {
     char message_to_server[BUFFER_SIZE] = "PING";
     char message_from_server[BUFFER_SIZE];
-    bzero(message_from_server, BUFFER_SIZE);
     // Create the client socket
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     // Address structure for server socket
@@ -38,12 +37,13 @@ int main() {
     if (connect(sockfd, (const struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         stop("could not connect with server");
     }
+
     int n;
-    for (int i = 0; i < 1000; i++) {
+    for (int i = 0; i < 1; i++) {
         if( send(sockfd, message_to_server, strlen(message_to_server), 0) < 0 ) {
             stop("cant send message from client to server");
         }
-        n = recv(sockfd, message_from_server, BUFFER_SIZE, 0);
+        n = recv(sockfd, message_from_server, strlen(message_from_server), 0);
         if(n < 0) {
             stop("cant receive message from server");
         }

@@ -1,14 +1,7 @@
 Pour compiler: "make"
-Pour clean objet et executable: "make clean"
+Pour clean: "make clean"
 
-Commentaire: Je pense qu'il serait mieux de catégoriser les messages en différents types : message normal, 
-message d'information, message d'erreur, message de fichier. Ensuite, je pourrais changer la couleur en fonction 
-du type de message (rouge pour les messages d'erreur, vert pour les messages d'information). 
-Cependant, j'ai réalisé cela trop tard (lorsque mon serveur avait déjà plus de 1000 lignes de code). 
-Ainsi, j'ai décidé de ne rien changer.
-
-
-1) Fonctionalités que j'ai fait
+1) Fonctionalités
     > client normal et client registré
     > changer le nickname pour le client normal et changer le nickname avec mot de passe
     > Envoyer le message privé
@@ -33,10 +26,5 @@ Ainsi, j'ai décidé de ne rien changer.
     > le serveur envoyer le signal ready_to_receive_file a la client
     > la client lire le fichier et envoyer au serveur
     > le serveur distribue le fichier au recipient
-
-3) Test la Fonctionalité envoyer le fichier
-    Pour tester la Fonctionalité envoyer le fichier j'ai crée le fichier text.txt et puis j'ai envoyé ce fichier.
-    Quand le recipient recois la méta data file name il va créer le fichier avec le suffix "_dst.txt" ce fichier 
-    est enregistré dans le répetoire courante.
 
 
