@@ -923,7 +923,7 @@ void request_nickname(clientNode *client_head, regis_clientNode* regis_client_he
                 stop("could not send warning message to the client");
             }
         }else {
-            char greeting_msg[] = "bienvenue";
+            char greeting_msg[] = "bienvenue ";
             if(send(client_sockfd, greeting_msg, strlen(greeting_msg), 0) == -1) {
                 stop("could not send greeting message to the client");
             }

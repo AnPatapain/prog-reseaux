@@ -101,7 +101,6 @@ void chatting(int i, int sockfd)
 	if (i == 0){
         // SEND MODE. The client activated -> Read message -> Send to server
 		fgets(send_buf, BUFFER_SIZE, stdin);
-        printf("\nsend_buf before send to server: %s\n", send_buf);
         write(sockfd, send_buf, strlen(send_buf));
 
         remove_enter_in_buffer(send_buf);

@@ -18,7 +18,7 @@ void stop(char *message) {
 }
 
 int main() {
-    char message_to_client[BUFFER_SIZE] = "PONG";
+    char message_to_client[] = "PONG";
     char message_from_client[BUFFER_SIZE];
     // Create Socket
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -63,7 +63,7 @@ int main() {
         n = recv(accepted_sockfd, message_from_client, BUFFER_SIZE, 0);
 
         if(n < 0){
-            stop("error occurs in recvfrom");
+            stop("error occurs in recv");
         }
         
         message_from_client[n] = '\0';
@@ -71,7 +71,7 @@ int main() {
         printf("\nmessage from clients: %s\n", message_from_client);
         // Send the message back to the accepted socket
         
-        if( send(accepted_sockfd, message_to_client, strlen(message_to_client), 0) < 0 ) {
+        if( send(accepted_sockfd, message_to_client, BUFFER_SIZE, 0) < 0 ) {
             stop("cant send message from server to client");
         }
     }
