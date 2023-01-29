@@ -394,21 +394,21 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
         send_file_command_handler(*regis_client_head, *client_head, client_sockfd, args);        
     }
 
-    // else if(strcmp(args[0], "/green") == 0 && args[1] != NULL) {
-    //     send_message_with_color(GREEN, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
-    // }
+    else if(strcmp(args[0], "/green") == 0 && args[1] != NULL) {
+        send_message_with_color(GREEN, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    }
 
-    // else if(strcmp(args[0], "/yellow") == 0 && args[1] != NULL) {
-    //     send_message_with_color(YELLOW, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
-    // }
+    else if(strcmp(args[0], "/yellow") == 0 && args[1] != NULL) {
+        send_message_with_color(YELLOW, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    }
 
-    // else if(strcmp(args[0], "/red") == 0 && args[1] != NULL) {
-    //     send_message_with_color(RED, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
-    // }
+    else if(strcmp(args[0], "/red") == 0 && args[1] != NULL) {
+        send_message_with_color(RED, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    }
 
-    // else if(strcmp(args[0], "/blue") == 0 && args[1] != NULL) {
-    //     send_message_with_color(BLUE, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
-    // }
+    else if(strcmp(args[0], "/blue") == 0 && args[1] != NULL) {
+        send_message_with_color(BLUE, args, *client_head, *regis_client_head, client_sockfd, readfds, fdmax, master_sockfd);
+    }
 
 }
 
@@ -489,7 +489,6 @@ void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* 
                 stop("send meta_data size error in server_command_handler");
             }
 
-            printf("\nfile_name_buffer before send to recipient: %s\n", file_name_buffer);
             if(send(sockfd_dst, file_name_buffer, strlen(file_name_buffer), 0) == -1) {
                 stop("send meta_data file name error in server_command_handler");
             }

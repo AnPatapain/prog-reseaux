@@ -101,7 +101,7 @@ void chatting(int i, int sockfd)
 	if (i == 0){
         // SEND MODE. The client activated -> Read message -> Send to server
 		fgets(send_buf, BUFFER_SIZE, stdin);
-        printf("\nsend_buf before send to server: %s\n", send_buf);
+        // printf("\nsend_buf before send to server: %s\n", send_buf);
         write(sockfd, send_buf, strlen(send_buf));
 
         remove_enter_in_buffer(send_buf);
@@ -232,7 +232,6 @@ void send_file_handler(char** args, int sockfd) {
             stop("send meta_data size error in send_file_handler");
         }
 
-        printf("\nargs[2] before send to server: %s\n", args[2]);
         if(send(sockfd, args[2], strlen(args[2]), 0) == -1) {
             stop("send meta_data file name error in send_file_handler");
         }
