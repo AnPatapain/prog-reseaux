@@ -47,6 +47,7 @@ void client_exit_handling(clientNode** client_head, regis_clientNode** regis_cli
 void change_color_buffer(char* buffer, char* color_code, char* buffer__);
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd);
 void alerte_personally(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int sockfd_src, int sockfd_dst);
+void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* client_head, int client_sockfd, char** args);
 
 // Function for buffer handling
 char **split_command(char *commande);
@@ -91,7 +92,6 @@ int main() {
     while(TRUE) {
         // We change the readfds au cours de body of while and at the beginning we assign readfds to actual_readfds
         actual_readfds = readfds;
-        int max_sockfd = master_sockfd;
         
         if(select(fdmax + 1, &actual_readfds, NULL, NULL, NULL) == -1) {
             stop("error occurs when selecting the ready socket");
@@ -173,7 +173,7 @@ void connection_accept(fd_set *readfds, int *fdmax, int master_sockfd, struct so
     }else {
         
         char nickname_buffer[BUFFER_SIZE];
-        int n, nickname_len;
+        int nickname_len;
         bzero(nickname_buffer, BUFFER_SIZE);
 
         // Request nickname of client
@@ -390,99 +390,100 @@ void command_handler(char** args, int client_sockfd, char* nickName, clientNode*
     }
 
     else if(strcmp(args[0], "/send") == 0 && args[1] != NULL && args[2] != NULL) {
-        printf("\n\e[0;32mstart listenning for meta data ...\033[0m\n");
-
-        char open_success[BUFFER_SIZE];
-        bzero(open_success, BUFFER_SIZE);
-        int size;
-        char* file_name_buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
-
-        if(recv(client_sockfd, open_success, BUFFER_SIZE, 0) == -1) {
-            stop("recv open_success error in /send in server");
-        }
-
-        if(strncmp(open_success, "ok", 2) == 0) {
-
-            // Receive meta data from client
-            if(recv(client_sockfd, &size, sizeof(int), 0) == -1) {
-                stop("receive meta data size error in command handler");
-            }
-
-            if(recv(client_sockfd, file_name_buffer, BUFFER_SIZE, 0) == -1) {
-                stop("receive meta data file name error in command handler");
-            }
-
-            printf("\n\e[0;32msuccessfully received meta data from client\033[0m\n");
-            // find client_dst
-            int sockfd_dst = -1;
-            clientNode* client = find_client_by_nickname(*client_head, args[1]);
-            regis_clientNode* regis_client;
-
-            if(client == NULL) {
-                regis_client = find_regis_client_by_nickname(*regis_client_head, args[1]);
-            }
-
-            if(client != NULL || regis_client != NULL) {
-                if(client != NULL) {
-                    sockfd_dst = client->client_sockfd;
-                }else {
-                    sockfd_dst = regis_client->client_sockfd;
-                }
-            }
-
-            if(sockfd_dst != -1) {
-                // Inform to recipient that the message will be FILE TYPE
-                if(send(sockfd_dst, MESSAGE_FILE_TYPE, BUFFER_SIZE, 0) == -1) {
-                    stop("send message file type error");
-                }
-
-                // Forward meta data to recipient
-                if(send(sockfd_dst, &size, sizeof(int), 0) == -1) {
-                    stop("send meta_data size error in server_command_handler");
-                }
-
-                printf("\nfile_name_buffer before send to recipient: %s\n", file_name_buffer);
-                if(send(sockfd_dst, file_name_buffer, strlen(file_name_buffer), 0) == -1) {
-                    stop("send meta_data file name error in server_command_handler");
-                }
-
-                printf("\n\e[0;32msuccessfully forward meta data start receiving data chunk ...\033[0m\n");
-                
-                // listenning for ready message from recipient
-                char ready_listenned[BUFFER_SIZE];
-                bzero(ready_listenned, BUFFER_SIZE);
-                if(recv(sockfd_dst, ready_listenned, BUFFER_SIZE, 0) == -1) {
-                    stop("receive ready error in server");
-                }
-
-                if(strncmp(ready_listenned, "ready", 5) == 0) {
-                    // Send a ready message to client
-                    char ready[] = "ready";
-                    if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
-                        stop("send ready error in server");
-                    }
-                }
-
-                //start receiving data chunk from client and forward to recipient
-                
-                char *data_chunk = (char *) calloc(sizeof(char), BUFFER_SIZE);
-                int bytes_received = recv(client_sockfd, data_chunk, size, 0);
-                if(bytes_received == -1) {
-                    stop("receiving data chunk error in server");
-                }
-                int bytes_forward = send(sockfd_dst, data_chunk, size, 0);
-                if(bytes_forward == -1) {
-                    stop("forwarding data chunk error in server");
-                }
-                printf("\n\e[0;32msuccessfully forward data chunk to recipient ...\033[0m\n");
-                printf("\nexit file send-recv flow\n");
-            }
-
-
-        }
-        
+        send_file_command_handler(*regis_client_head, *client_head, client_sockfd, args);        
     }
 
+}
+
+void send_file_command_handler(regis_clientNode* regis_client_head, clientNode* client_head, int client_sockfd, char** args) {
+    printf("\n\e[0;32mstart listenning for meta data ...\033[0m\n");
+
+    char open_success[BUFFER_SIZE];
+    bzero(open_success, BUFFER_SIZE);
+    int size;
+    char* file_name_buffer = (char*)calloc(sizeof(char), BUFFER_SIZE);
+
+    if(recv(client_sockfd, open_success, BUFFER_SIZE, 0) == -1) {
+        stop("recv open_success error in /send in server");
+    }
+
+    if(strncmp(open_success, "ok", 2) == 0) {
+
+        // Receive meta data from client
+        if(recv(client_sockfd, &size, sizeof(int), 0) == -1) {
+            stop("receive meta data size error in command handler");
+        }
+
+        if(recv(client_sockfd, file_name_buffer, BUFFER_SIZE, 0) == -1) {
+            stop("receive meta data file name error in command handler");
+        }
+
+        printf("\n\e[0;32msuccessfully received meta data from client\033[0m\n");
+        // find client_dst
+        int sockfd_dst = -1;
+        clientNode* client = find_client_by_nickname(client_head, args[1]);
+        regis_clientNode* regis_client;
+
+        if(client == NULL) {
+            regis_client = find_regis_client_by_nickname(regis_client_head, args[1]);
+        }
+
+        if(client != NULL || regis_client != NULL) {
+            if(client != NULL) {
+                sockfd_dst = client->client_sockfd;
+            }else {
+                sockfd_dst = regis_client->client_sockfd;
+            }
+        }
+
+        if(sockfd_dst != -1) {
+            // Inform to recipient that the message will be FILE TYPE
+            if(send(sockfd_dst, MESSAGE_FILE_TYPE, BUFFER_SIZE, 0) == -1) {
+                stop("send message file type error");
+            }
+
+            // Forward meta data to recipient
+            if(send(sockfd_dst, &size, sizeof(int), 0) == -1) {
+                stop("send meta_data size error in server_command_handler");
+            }
+
+            printf("\nfile_name_buffer before send to recipient: %s\n", file_name_buffer);
+            if(send(sockfd_dst, file_name_buffer, strlen(file_name_buffer), 0) == -1) {
+                stop("send meta_data file name error in server_command_handler");
+            }
+
+            printf("\n\e[0;32msuccessfully forward meta data start receiving data chunk ...\033[0m\n");
+                
+            // listenning for ready message from recipient
+            char ready_listenned[BUFFER_SIZE];
+            bzero(ready_listenned, BUFFER_SIZE);
+            if(recv(sockfd_dst, ready_listenned, BUFFER_SIZE, 0) == -1) {
+                stop("receive ready error in server");
+            }
+
+            if(strncmp(ready_listenned, "ready", 5) == 0) {
+                // Send a ready message to client
+                char ready[] = "ready";
+                if(send(client_sockfd, ready, BUFFER_SIZE, 0) == -1) {
+                    stop("send ready error in server");
+                }
+            }
+
+            //start receiving data chunk from client and forward to recipient
+                
+            char *data_chunk = (char *) calloc(sizeof(char), BUFFER_SIZE);
+            int bytes_received = recv(client_sockfd, data_chunk, size, 0);
+            if(bytes_received == -1) {
+                stop("receiving data chunk error in server");
+            }
+            int bytes_forward = send(sockfd_dst, data_chunk, size, 0);
+            if(bytes_forward == -1) {
+                stop("forwarding data chunk error in server");
+            }
+            printf("\n\e[0;32msuccessfully forward data chunk to recipient ...\033[0m\n");
+            printf("\nexit file send-recv flow\n");
+        }
+    }
 }
 
 void alerte_broadcast(char* buffer, clientNode* client_head, regis_clientNode* regis_client_head, int client_sockfd, fd_set* readfds, int fdmax, int master_sockfd) {
@@ -548,7 +549,6 @@ void change_color_buffer(char* buffer, char* color_code, char* buffer__) {
 void assembler_args_into_buffer_from_index(char** args, int index, char* buffer) {
     int k = index;
     int j = 0;
-    int i = 0;
     while(args[k] != NULL) {
         for(int i = 0; i < strlen(args[k]); i++) {
             buffer[j] = args[k][i];
@@ -693,16 +693,7 @@ void send_private_message(clientNode* client_head, regis_clientNode* regis_clien
     else {
         char *private_msg = (char*)malloc(sizeof(char) * BUFFER_SIZE);
         bzero(private_msg, BUFFER_SIZE);
-        sprintf(private_msg, "%s%s", args[2], " ");
-        int i_ = 3;
-        while(args[i_] != NULL){
-            if(i_ == 3) {
-                sprintf(private_msg, "%s%s", private_msg, args[i_]);
-            }else {
-                sprintf(private_msg, "%s%s%s", private_msg, " ", args[i_]);
-            }
-            i_++;
-        }
+        assembler_args_into_buffer_from_index(args, 2, private_msg);
         char* prefix = (char*)malloc(sizeof(char) * BUFFER_SIZE);
         bzero(prefix, BUFFER_SIZE);
         sprintf(prefix, "%s%s", "private msg from ", nickName_src);

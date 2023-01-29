@@ -26,7 +26,8 @@ int main() {
     // Address structure for both server and client
     struct sockaddr_in server_addr, client_addr;
 
-    int client_size = sizeof(client_addr);
+    // int client_size = sizeof(client_addr);
+    socklen_t client_size = sizeof(client_addr);
 
     if (sockfd < 0) {
         stop("\nCould not create a tcp socket\n");
